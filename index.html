@@ -167,7 +167,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);border-colo
 </main>
 
 <script>
-// Only this email is allowed read/write permissions
+// Authorized emails (handles Gmail dot-aliasing)
 const AUTHORIZED_EMAILS = [
   "greenstone.scott@gmail.com",
   "greenstonescott@gmail.com"
@@ -176,7 +176,6 @@ const AUTHORIZED_EMAILS = [
 function isAuthorized(email) {
   if (!email) return false;
   const clean = email.toLowerCase().trim();
-  // Check exact match or normalized dotless Gmail match
   const [user, domain] = clean.split('@');
   const normalized = (domain === 'gmail.com' ? user.replace(/\./g, '') : user) + '@' + domain;
   return AUTHORIZED_EMAILS.some(a => {
@@ -213,6 +212,7 @@ const store = {
 
 let fbProj = localStorage.getItem('tp_fb_proj') || '';
 let fbApiKey = localStorage.getItem('tp_fb_apikey') || '';
+// Pre-populate with your documented athlete credentials
 let cfg = store.get('tp_cfg', { id: 'i156864', key: '56ikb79lowqsehktofpy83d8a' });
 let goals = store.get('tp_goals', []);
 let data = store.get('tp_data', null);
@@ -242,22 +242,25 @@ function initFirebaseApp() {
     auth = firebase.auth();
     db = firebase.firestore();
 
-    auth.onAuthStateChanged(user => {
+    auth.onAuthStateChanged(async user => {
       const lock = document.getElementById('lockOverlay');
       const pill = document.getElementById('authPill');
       const lockMsg = document.getElementById('lockMsg');
 
       if (user) {
         if (isAuthorized(user.email)) {
-          
           currentUser = user;
           lock.classList.remove('active');
           pill.style.display = 'inline-flex';
           document.getElementById('authUserEmail').textContent = user.email;
           updateCloudStatus(true);
-          loadFromFirestore();
+          
+          // Load cloud profile first, then trigger persistent sync
+          await loadFromFirestore();
+          if (cfg.id && cfg.key) {
+            syncIntervals();
+          }
         } else {
-          // Unauthorized visitor: block access
           auth.signOut();
           currentUser = null;
           lock.classList.add('active');
@@ -315,8 +318,13 @@ async function loadFromFirestore() {
     const doc = await db.collection('tripulse_users').doc(currentUser.uid).get();
     if (doc.exists) {
       const d = doc.data();
+      if (d.tp_cfg && d.tp_cfg.id && d.tp_cfg.key) {
+        cfg = d.tp_cfg;
+        localStorage.setItem('tp_cfg', JSON.stringify(cfg));
+        document.getElementById('s_id').value = cfg.id;
+        document.getElementById('s_key').value = cfg.key;
+      }
       if (d.tp_goals) { goals = d.tp_goals; localStorage.setItem('tp_goals', JSON.stringify(goals)); }
-      if (d.tp_cfg) { cfg = d.tp_cfg; localStorage.setItem('tp_cfg', JSON.stringify(cfg)); }
       if (d.tp_data) { data = d.tp_data; localStorage.setItem('tp_data', JSON.stringify(data)); }
       renderAll();
     }
@@ -337,17 +345,17 @@ function saveFirebaseCredentials() {
   fbApiKey = k;
   localStorage.setItem('tp_fb_proj', fbProj);
   localStorage.setItem('tp_fb_apikey', fbApiKey);
-  msg.textContent = 'Saved! Initializing Google Auth…';
+  msg.textContent = 'Saved! Connecting Google Auth…';
   initFirebaseApp();
   loginWithGoogle();
 }
 
-// App Logic
+// App Logic & Dashboard
 function renderDash() {
   const el = document.getElementById('dash-content');
   if (!el) return;
   if (!data) {
-    el.innerHTML = '<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">No data loaded yet. Connect Intervals.icu on the Settings tab or load sample data.</p><button class="btn" onclick="syncIntervals()">Sync Intervals.icu</button> <button class="btn alt" onclick="loadDemoData()">Load Sample Data</button></div>';
+    el.innerHTML = '<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">Connecting to your Intervals.icu profile…</p><button class="btn" onclick="syncIntervals()">Sync Intervals.icu</button> <button class="btn alt" onclick="loadDemoData()">Load Sample Data</button></div>';
     return;
   }
   const k = (l, v, s) => `<div class="kpi"><span>${l}</span><b>${v}</b><em class="muted">${s||''}</em></div>`;
@@ -404,7 +412,7 @@ function buildWeek() {
   out.innerHTML = `<div class="card"><h2>Plan for ${w}</h2><div class="week"><div class="days">
     <div class="day"><h4>Mon</h4><span class="muted">Rest Day</span></div>
     <div class="day"><h4>Tue</h4><div class="chip swim"><b>🏊 25y Pool</b><p>CSS intervals</p></div><div class="chip run"><b>🏃 40m Run</b><p>Aerobic</p></div></div>
-    <div class="day"><h4>Wed</h4><div class="chip bike"><b>🚴 60m Bike</b><p>Sweet spot</p></div><div class="chip"><b>🏋️️ 30m Core</b></div></div>
+    <div class="day"><h4>Wed</h4><div class="chip bike"><b>🚴 60m Bike</b><p>Sweet spot</p></div><div class="chip"><b>🏋️ 30m Core</b></div></div>
     <div class="day"><h4>Thu</h4><div class="chip run"><b>🏃 45m Run</b><p>Threshold</p></div><div class="chip"><b>🏋️ 30m Strength</b></div></div>
     <div class="day"><h4>Fri</h4><div class="chip swim"><b>🏊 25y Pool</b><p>Endurance pull</p></div><div class="chip bike"><b>🚴 40m Spin</b></div></div>
     <div class="day"><h4>Sat</h4><div class="chip bike"><b>🚴 Long Ride</b><p>2h30–3h00 Z2</p></div></div>
@@ -421,12 +429,8 @@ function loadDemoData() {
 }
 
 function syncIntervals() {
-  const id = document.getElementById('s_id').value.trim();
-  const key = document.getElementById('s_key').value.trim();
   const sm = document.getElementById('s_msg');
-  if (!id || !key) return;
-  cfg = { id, key };
-  store.set('tp_cfg', cfg);
+  if (!cfg.id || !cfg.key) return;
   if (sm) sm.textContent = 'Syncing…';
 
   fetch(`https://intervals.icu/api/v1/athlete/${cfg.id}`, {
@@ -441,16 +445,21 @@ function syncIntervals() {
     if (st) { st.className = 'ok'; st.querySelector('span').textContent = 'Connected · ' + data.name; }
     if (sm) sm.textContent = 'Connected!';
     renderDash();
-    switchTab('dash');
   }).catch(() => {
     if (sm) sm.textContent = 'Offline fallback active.';
     loadDemoData();
-    switchTab('dash');
   });
 }
 
 function saveIntervals() {
+  const id = document.getElementById('s_id').value.trim();
+  const key = document.getElementById('s_key').value.trim();
+  if (!id || !key) return;
+  cfg = { id, key };
+  // Immediately persist locally and to Firestore
+  store.set('tp_cfg', cfg);
   syncIntervals();
+  switchTab('dash');
 }
 
 function renderAll() {
