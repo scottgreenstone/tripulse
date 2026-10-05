@@ -908,7 +908,7 @@ function csvWeek(){
 // const FIREBASE_CONFIG={apiKey:"...",authDomain:"your-app.firebaseapp.com",projectId:"your-app",appId:"..."};
 const FIREBASE_CONFIG=null;
 // Only this Google account may use the cloud-synced app (set it to your own address, e.g. 'you@gmail.com'):
-const ALLOWED_EMAIL='';
+const ALLOWED_EMAIL='greenstone.scott@gmail.com';
 let lockMsg='';
 const isOwner=u=>!!u&&!!ALLOWED_EMAIL&&u.emailVerified&&String(u.email||'').toLowerCase()===ALLOWED_EMAIL.toLowerCase();
 function lockUI(){
