@@ -965,16 +965,35 @@ async function fbOut(){try{await fb.auth.signOut(fb.au)}catch(e){fbMsg(e.message
 function fbCreds(v){fbOpts.creds=!!v;store.set('tp_fbopts',fbOpts);cloudPush()}
 const fbDoc=()=>fb.fs.doc(fb.db,'tripulse',fb.user.uid);
 async function cloudPush(){
-  if(!cloudOn())return;
+  if(!cloudOn()){
+    console.warn("Cloud push skipped: not logged in or demo data active");
+    return;
+  }
   try{
-    let up=localUpdated();if(!up){up=Date.now();try{localStorage.setItem('tp_updated',String(up))}catch(e){}}
-    const d={updated:up,state:JSON.stringify({goals,weeks:weeksLog,planned:plannedLog,wlb:wLb,road})};
-    if(fbOpts.creds&&cfg.id&&cfg.key)d.cfg={id:cfg.id,key:cfg.key};
-    await fb.fs.setDoc(fbDoc(),d);
-    cloudStatus('☁ saved '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}));
-  }catch(e){cloudStatus('☁ save failed: '+e.message)}
-}
-function applyRemote(b){
+    let up = localUpdated();
+    if(!up){ up = Date.now(); localStorage.setItem('tp_updated', String(up)); }
+    
+    // Always include intervals credentials so Computer 2 can sync immediately
+    const payload = {
+      updated: up,
+      cfg: (cfg.id && cfg.key) ? { id: cfg.id, key: cfg.key } : null,
+      state: JSON.stringify({
+        goals: goals,
+        weeks: weeksLog,
+        planned: plannedLog,
+        wlb: wLb,
+        road: road
+      })
+    };
+    
+    cloudStatus('☁ saving…');
+    await fb.fs.setDoc(fbDoc(), payload);
+    cloudStatus('☁ saved ' + new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}));
+  } catch(e) {
+    cloudStatus('☁ save failed');
+    alert("Firebase Save Failed: " + e.message);
+  }
+}function applyRemote(b){
   cloudApplying=true;
   goals=b.goals||[];weeksLog=b.weeks||{};plannedLog=b.planned||{};road=b.road||null;if(b.wlb)wLb=b.wlb;
   store.set('tp_goals',goals);store.set('tp_weeks',weeksLog);store.set('tp_planned',plannedLog);store.set('tp_road',road);store.set('tp_wlb',wLb);
