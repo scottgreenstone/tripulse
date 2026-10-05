@@ -168,7 +168,23 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);border-colo
 
 <script>
 // Only this email is allowed read/write permissions
-const AUTHORIZED_EMAIL = "greenstonescott@gmail.com";
+const AUTHORIZED_EMAILS = [
+  "greenstone.scott@gmail.com",
+  "greenstonescott@gmail.com"
+];
+
+function isAuthorized(email) {
+  if (!email) return false;
+  const clean = email.toLowerCase().trim();
+  // Check exact match or normalized dotless Gmail match
+  const [user, domain] = clean.split('@');
+  const normalized = (domain === 'gmail.com' ? user.replace(/\./g, '') : user) + '@' + domain;
+  return AUTHORIZED_EMAILS.some(a => {
+    const [aUser, aDomain] = a.toLowerCase().split('@');
+    const aNorm = (aDomain === 'gmail.com' ? aUser.replace(/\./g, '') : aUser) + '@' + aDomain;
+    return normalized === aNorm;
+  });
+}
 
 let db = null;
 let auth = null;
@@ -232,7 +248,8 @@ function initFirebaseApp() {
       const lockMsg = document.getElementById('lockMsg');
 
       if (user) {
-        if (user.email.toLowerCase() === AUTHORIZED_EMAIL.toLowerCase()) {
+        if (isAuthorized(user.email)) {
+          
           currentUser = user;
           lock.classList.remove('active');
           pill.style.display = 'inline-flex';
