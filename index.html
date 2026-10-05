@@ -984,15 +984,36 @@ function applyRemote(b){
 async function cloudPull(){
   if(!cloudOn())return;
   try{
-    lastPull=Date.now();cloudStatus('☁ checking…');
+    lastPull=Date.now();
+    cloudStatus('☁ checking…');
     const snap=await fb.fs.getDoc(fbDoc());
-    if(!snap.exists()){await cloudPush();return}
-    const d=snap.data(),local=localUpdated();
-    if(d.cfg&&d.cfg.id&&d.cfg.key&&(!cfg.id||!cfg.key)){cfg={id:d.cfg.id,key:d.cfg.key};store.set('tp_cfg',cfg);fbOpts.creds=true;store.set('tp_fbopts',fbOpts);sync()}
-    if((d.updated||0)>local){applyRemote({...JSON.parse(d.state||'{}'),updated:d.updated});cloudStatus('☁ loaded your data from the cloud')}
-    else if(local>(d.updated||0))await cloudPush();
-    else cloudStatus('☁ in sync');
-  }catch(e){cloudStatus('☁ unavailable: '+e.message)}
+    if(!snap.exists()){
+      if(goals.length || Object.keys(weeksLog).length) await cloudPush();
+      return;
+    }
+    const d=snap.data(), local=localUpdated();
+    
+    // Automatically apply credentials if available
+    if(d.cfg&&d.cfg.id&&d.cfg.key&&(!cfg.id||!cfg.key)){
+      cfg={id:d.cfg.id,key:d.cfg.key};
+      store.set('tp_cfg',cfg);
+      sync();
+    }
+
+    const hasLocalData = goals.length > 0 || Object.keys(weeksLog).length > 0;
+
+    // If local has no data, or remote is strictly newer, pull remote
+    if(!hasLocalData || (d.updated||0) > local){
+      applyRemote({...JSON.parse(d.state||'{}'), updated:d.updated});
+      cloudStatus('☁ loaded your data from the cloud');
+    } else if(local > (d.updated||0)){
+      await cloudPush();
+    } else {
+      cloudStatus('☁ in sync');
+    }
+  }catch(e){
+    cloudStatus('☁ unavailable: '+e.message);
+  }
 }
 
 /* ---------- ui wiring ---------- */
