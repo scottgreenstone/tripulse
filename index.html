@@ -61,6 +61,8 @@ input:focus,select:focus{outline:2px solid var(--acc);border-color:transparent}
 dialog{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:18px;padding:22px;max-width:460px;width:92%}
 dialog::backdrop{background:#000a}
 .hide{display:none}
+.lock{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
+.lock.hide{display:none}
 .ph.Recover{background:#a78bfa22;color:#a78bfa}
 .blk div{white-space:pre-line}
 .chip pre{white-space:pre-wrap;font-size:11px;background:#0d1328;border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0 0;overflow-x:auto}
@@ -170,6 +172,16 @@ details.card>summary{cursor:pointer;font-weight:700}
   </section>
 </main>
 
+<div id="lock" class="lock hide">
+  <div class="card" style="max-width:420px;width:100%;text-align:center;margin:0">
+    <div id="lockLogo" style="width:64px;margin:0 auto 10px"></div>
+    <h2 style="font-size:22px">TriPulse is private</h2>
+    <p class="small muted" id="lockTxt">Sign in with the owner's Google account to continue.</p>
+    <button class="btn" onclick="fbGoogle()">Sign in with Google</button>
+    <p class="small" id="lock_msg" style="color:var(--bad)"></p>
+  </div>
+</div>
+
 <dialog id="dlg2">
   <h2 style="margin-top:0">☁ Cloud sync (Firebase)</h2>
   <p class="small muted">Saves your goals, check-ins and roadmap to your own private Firebase database so any computer you sign in on has the same data.</p>
@@ -180,9 +192,6 @@ details.card>summary{cursor:pointer;font-weight:700}
   </div>
   <div id="fbAuth" class="hide">
     <div class="row" style="margin-top:6px"><button class="btn" onclick="fbGoogle()">Sign in with Google</button></div>
-    <p class="small muted" style="margin:12px 0 6px">or use email &amp; password</p>
-    <div class="form" style="grid-template-columns:1fr 1fr"><div><label>Email</label><input id="fb_email" type="email" autocomplete="username"></div><div><label>Password</label><input id="fb_pw" type="password" autocomplete="current-password"></div></div>
-    <div class="row"><button class="btn alt sm" onclick="fbEmail(false)">Sign in</button><button class="btn alt sm" onclick="fbEmail(true)">Create account</button></div>
   </div>
   <div id="fbIn" class="hide">
     <p>Signed in as <b id="fb_user"></b></p>
@@ -210,6 +219,7 @@ details.card>summary{cursor:pointer;font-weight:700}
 <script>
 const LOGO=`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient><linearGradient id="lp" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e0f7ff"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M8 40 Q14 34 20 40 T32 40" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="2.5" stroke-linecap="round"/><path d="M6 34 H19 L25 14 L34 50 L40 28 L44 34 H58" fill="none" stroke="url(#lp)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="52" cy="50" r="3" fill="#fff"/><circle cx="44" cy="50" r="3" fill="#fff" fill-opacity=".6"/><circle cx="12" cy="50" r="3" fill="#fff" fill-opacity=".35"/></svg>`;
 document.getElementById('logo').innerHTML=LOGO;
+document.getElementById('lockLogo').innerHTML=LOGO.replace(/id="lg"/g,'id="lg2"').replace(/#lg\)/g,'#lg2)').replace(/id="lp"/g,'id="lp2"').replace(/#lp\)/g,'#lp2)');
 document.querySelector('link[rel=icon]').href='data:image/svg+xml,'+encodeURIComponent(LOGO.replace(/id="lg"/g,'id="fg"').replace(/#lg/g,'#fg').replace(/id="lp"/g,'id="fp"').replace(/#lp/g,'#fp'));
 
 /* ---------- helpers ---------- */
@@ -896,6 +906,16 @@ function csvWeek(){
 // To bake your Firebase config into this file (so every computer just signs in), paste the object here, e.g.
 // const FIREBASE_CONFIG={apiKey:"...",authDomain:"your-app.firebaseapp.com",projectId:"your-app",appId:"..."};
 const FIREBASE_CONFIG=null;
+// Only this Google account may use the cloud-synced app (set it to your own address, e.g. 'you@gmail.com'):
+const ALLOWED_EMAIL='';
+let lockMsg='';
+const isOwner=u=>!!u&&!!ALLOWED_EMAIL&&u.emailVerified&&String(u.email||'').toLowerCase()===ALLOWED_EMAIL.toLowerCase();
+function lockUI(){
+  const need=!!fbCfg&&!(fb&&fb.user&&isOwner(fb.user));
+  $('#lock').classList.toggle('hide',!need);
+  $('#lock_msg').textContent=lockMsg;
+  $('#lockTxt').textContent=ALLOWED_EMAIL?"Sign in with the owner's Google account to continue.":'Owner email not set: put your Google address in ALLOWED_EMAIL near the cloud-sync code in this file, then re-upload it.';
+}
 let fbCfg=FIREBASE_CONFIG||store.get('tp_fbcfg',null),fbOpts=store.get('tp_fbopts',{creds:false}),fb=null,lastPull=0;
 const cloudOn=()=>!!(fb&&fb.user&&!(data&&data.demo));
 function cloudStatus(t){const e=$('#cloudStat');if(e)e.textContent=t}
@@ -906,6 +926,7 @@ function fbUI(){
   $('#fbAuth').classList.toggle('hide',!fbCfg||sig);$('#fbIn').classList.toggle('hide',!sig);
   if(sig){$('#fb_user').textContent=fb.user.email||fb.user.displayName||fb.user.uid;$('#fb_creds').checked=!!fbOpts.creds;cloudStatus('☁ '+(fb.user.email||'signed in'))}
   else cloudStatus(fbCfg?'☁ signed out':'☁ not set up');
+  lockUI();
 }
 async function fbInit(){
   if(fb)return fb;if(!fbCfg)throw new Error('add your Firebase config first');
@@ -913,19 +934,18 @@ async function fbInit(){
   const [app,auth,fs]=await Promise.all([import(B+'firebase-app.js'),import(B+'firebase-auth.js'),import(B+'firebase-firestore.js')]);
   const a=app.initializeApp(fbCfg),au=auth.getAuth(a),db=fs.getFirestore(a);
   fb={auth,fs,au,db,user:null};
-  auth.onAuthStateChanged(au,u=>{fb.user=u;fbUI();if(u)cloudPull()});
+  auth.onAuthStateChanged(au,async u=>{
+    if(u&&!isOwner(u)){lockMsg=ALLOWED_EMAIL?`Access denied: ${u.email||'this account'} is not the owner.`:'Owner email is not set (ALLOWED_EMAIL).';try{await auth.signOut(au)}catch(e){}u=null}
+    else if(u)lockMsg='';
+    fb.user=u;fbUI();if(u)cloudPull()});
   return fb;
 }
 function parseFbCfg(t){const o={};String(t).replace(/["']?(\w+)["']?\s*:\s*["']([^"']*)["']/g,(m,k,v)=>{o[k]=v});return o.apiKey&&o.projectId?o:null}
 async function fbSaveCfg(){
   const c=parseFbCfg($('#fb_cfg').value);if(!c){fbMsg('Could not read that config – paste the whole firebaseConfig object (needs apiKey and projectId).');return}
-  fbCfg=c;store.set('tp_fbcfg',c);fbMsg('Config saved.');try{await fbInit();fbUI()}catch(e){fbMsg(e.message)}
+  fbCfg=c;store.set('tp_fbcfg',c);fbMsg('Config saved.');try{await fbInit();fbUI()}catch(e){fbMsg(e.message)}lockUI()
 }
 async function fbGoogle(){try{await fbInit();await fb.auth.signInWithPopup(fb.au,new fb.auth.GoogleAuthProvider());fbMsg('')}catch(e){fbMsg(e.message)}}
-async function fbEmail(create){
-  try{await fbInit();const em=$('#fb_email').value.trim(),pw=$('#fb_pw').value;
-    await (create?fb.auth.createUserWithEmailAndPassword(fb.au,em,pw):fb.auth.signInWithEmailAndPassword(fb.au,em,pw));fbMsg('')}catch(e){fbMsg(e.message)}
-}
 async function fbOut(){try{await fb.auth.signOut(fb.au)}catch(e){fbMsg(e.message)}}
 function fbCreds(v){fbOpts.creds=!!v;store.set('tp_fbopts',fbOpts);cloudPush()}
 const fbDoc=()=>fb.fs.doc(fb.db,'tripulse',fb.user.uid);
