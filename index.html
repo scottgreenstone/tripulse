@@ -6,7 +6,7 @@
 <title>TriPulse – Triathlon Training Planner</title>
 <link rel="icon" type="image/svg+xml" href="">
 
-<!-- Firebase SDK (Compat) -->
+<!-- Firebase SDKs -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -50,7 +50,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);border-colo
 .btn:hover{opacity:.9}
 .btn.alt{background:var(--card2);color:var(--tx);border:1px solid var(--line)}
 .btn.alt:hover{background:#232d50}
-.btn.sm{padding:5px 12px;font-size:12px}
+.btn.sm{padding:6px 12px;font-size:12px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
 .bar{height:8px;background:#0d1328;border-radius:6px;overflow:hidden;margin-top:6px}.bar>div{height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:6px}
 .goal{border:1px solid var(--line);background:var(--card2);border-radius:14px;padding:16px;margin-bottom:12px}
@@ -66,8 +66,12 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);border-colo
 .chip{border-left:3px solid var(--c);background:#0d1328cc;border-radius:6px;padding:5px 7px;margin-bottom:6px}
 .chip b{font-size:12px}.chip p{margin:2px 0 0;color:var(--mut);font-size:11px;line-height:1.3}
 @media(max-width:860px){.days{grid-template-columns:1fr}.day{min-height:0}}
-dialog{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:18px;padding:24px;max-width:480px;width:92%}
-dialog::backdrop{background:#000000a6;backdrop-filter:blur(4px)}
+
+/* Explicit Modal Container for zero-dependency dialog handling */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(4,8,18,0.78);backdrop-filter:blur(6px);z-index:9999;align-items:center;justify-content:center;padding:16px}
+.modal-overlay.active{display:flex}
+.modal-box{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:18px;padding:24px;max-width:500px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.6)}
+
 .hide{display:none}
 .chip pre{white-space:pre-wrap;font-size:11px;background:#0d1328;border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0 0;overflow-x:auto}
 .chip details summary{list-style:revert}
@@ -87,7 +91,7 @@ details.card>summary{cursor:pointer;font-weight:700}
 .tot{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 12px}
 .tot span{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:13px}
 .note{background:#8b5cf61a;border:1px solid #8b5cf655;border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:14px}
-.cloud-pill{font-size:11px;background:#22d3ee14;border:1px solid #22d3ee44;color:var(--acc);padding:3px 10px;border-radius:14px;display:inline-flex;align-items:center;gap:5px;font-weight:600}
+.cloud-pill{font-size:11px;background:#22d3ee14;border:1px solid #22d3ee44;color:var(--acc);padding:4px 10px;border-radius:14px;display:inline-flex;align-items:center;gap:5px;font-weight:600}
 </style>
 </head>
 <body>
@@ -97,7 +101,7 @@ details.card>summary{cursor:pointer;font-weight:700}
     <div><h1>TriPulse</h1><small>Swim · Bike · Run</small></div>
   </div>
   <div class="sp"></div>
-  <div id="cloudStatus" class="cloud-pill">☁ Firebase Connecting...</div>
+  <div id="cloudStatus" class="cloud-pill">☁ Firebase Disconnected</div>
   <div id="status"><i></i><span>Not connected</span></div>
   <button class="btn alt sm" id="openFbSet">🔥 Firebase</button>
   <button class="btn alt sm" id="openSet">⚙ Intervals</button>
@@ -177,37 +181,40 @@ details.card>summary{cursor:pointer;font-weight:700}
   </section>
 </main>
 
-<dialog id="dlg">
-  <h2 style="margin-top:0">Connect to intervals.icu</h2>
-  <p class="small muted">Credentials are stored encrypted directly in your Firebase Cloud profile.</p>
-  <label>Athlete ID</label><input id="s_id" placeholder="i123456" autocomplete="off">
-  <div style="height:10px"></div>
-  <label>API key</label><input id="s_key" type="password" autocomplete="off">
-  <div class="row">
-    <button class="btn" id="saveSet">Connect &amp; sync</button>
-    <button class="btn alt" id="demo">Use demo data</button>
-    <button class="btn alt" id="closeSet">Close</button>
+<!-- Reliable Overlay Modals -->
+<div id="modalSet" class="modal-overlay">
+  <div class="modal-box">
+    <h2 style="margin-top:0">Connect to intervals.icu</h2>
+    <p class="small muted">Stored safely and synced to your cloud account.</p>
+    <label>Athlete ID</label><input id="s_id" placeholder="i123456" autocomplete="off">
+    <div style="height:10px"></div>
+    <label>API key</label><input id="s_key" type="password" autocomplete="off">
+    <div class="row">
+      <button class="btn" id="saveSet">Connect &amp; sync</button>
+      <button class="btn alt" id="demo">Use demo data</button>
+      <button class="btn alt" id="closeSet">Close</button>
+    </div>
+    <p class="small" id="s_msg" style="color:var(--bad)"></p>
   </div>
-  <p class="small" id="s_msg" style="color:var(--bad)"></p>
-</dialog>
+</div>
 
-<dialog id="dlgFb">
-  <h2 style="margin-top:0">🔥 Firebase Cloud Config</h2>
-  <p class="small muted">Paste your Firebase Project Web SDK config JSON below to persist state in Firestore across all devices and deploys.</p>
-  <textarea id="fb_cfg" rows="8" placeholder='{
-  "apiKey": "AIzaSy...",
-  "authDomain": "your-app.firebaseapp.com",
-  "projectId": "your-app",
-  "storageBucket": "your-app.appspot.com",
-  "messagingSenderId": "...",
-  "appId": "..."
-}'></textarea>
-  <div class="row">
-    <button class="btn" id="saveFb">Save &amp; Connect Cloud</button>
-    <button class="btn alt" id="closeFb">Close</button>
+<div id="modalFb" class="modal-overlay">
+  <div class="modal-box">
+    <h2 style="margin-top:0">🔥 Firebase Cloud Config</h2>
+    <p class="small muted">Paste your entire code snippet or JSON from the Firebase console below:</p>
+    <textarea id="fb_cfg" rows="9" style="font-family:monospace;font-size:12px" placeholder="const firebaseConfig = {
+  apiKey: '...',
+  authDomain: '...',
+  projectId: '...',
+  ...
+};"></textarea>
+    <div class="row">
+      <button class="btn" id="saveFb">Save &amp; Connect Cloud</button>
+      <button class="btn alt" id="closeFb">Close</button>
+    </div>
+    <p class="small" id="fb_msg" style="color:var(--bad);margin-bottom:0"></p>
   </div>
-  <p class="small" id="fb_msg" style="color:var(--bad)"></p>
-</dialog>
+</div>
 
 <script>
 const LOGO=`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient><linearGradient id="lp" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e0f7ff"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M8 40 Q14 34 20 40 T32 40" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="2.5" stroke-linecap="round"/><path d="M6 34 H19 L25 14 L34 50 L40 28 L44 34 H58" fill="none" stroke="url(#lp)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="52" cy="50" r="3" fill="#fff"/><circle cx="44" cy="50" r="3" fill="#fff" fill-opacity=".6"/><circle cx="12" cy="50" r="3" fill="#fff" fill-opacity=".35"/></svg>`;
@@ -228,7 +235,7 @@ const ICON={swim:'🏊',bike:'🚴',run:'🏃',strength:'🏋️',race:'🏁',ot
 const COL={swim:'#38bdf8',bike:'#f59e0b',run:'#34d399',other:'#a78bfa'};
 const sportOf=t=>{t=t||'';if(/swim/i.test(t))return 'swim';if(/ride|bike|cycl/i.test(t))return 'bike';if(/run/i.test(t))return 'run';return 'other'};
 
-/* ---------- Firebase Firestore sync engine ---------- */
+/* ---------- Robust Firebase Firestore sync engine ---------- */
 let db = null, fbAuth = null, fbUser = null;
 const FB_KEY = 'tp_firebase_config';
 
@@ -270,6 +277,26 @@ function cloudBadge(ok, msg) {
   }
 }
 
+// Extracts valid configuration JSON even if user copies full JavaScript code
+function parseConfig(raw) {
+  raw = raw.trim();
+  try {
+    return JSON.parse(raw);
+  } catch(e) {}
+  
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const jsonish = m[0]
+    .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ')
+    .replace(/'/g, '"')
+    .replace(/,\s*([}\]])/g, '$1');
+  try {
+    return JSON.parse(jsonish);
+  } catch(e) {
+    return null;
+  }
+}
+
 async function initFirebase(cfgObj) {
   if (!cfgObj || !cfgObj.apiKey) {
     cloudBadge(false, 'No Config');
@@ -298,7 +325,7 @@ async function initFirebase(cfgObj) {
     return true;
   } catch (err) {
     console.error('Firebase initialization error', err);
-    cloudBadge(false, 'Init Error');
+    cloudBadge(false, 'Auth/Rule Error');
     return false;
   }
 }
@@ -438,7 +465,7 @@ function trendCard(label,key,unit,goodUp){
 const trendBlock=()=>`<div class="grid kpis" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${trendCard('HRV','hrv','ms',true)}${trendCard('Resting HR','restingHR','bpm',false)}${trendCard('Sleep score','sleepScore','',true)}</div>
 `;
 
-/* ---------- predictions ---------- */
+/* ---------- race predictions ---------- */
 let wLb=store.get('tp_wlb',165);
 function setWeight(v){const n=parseFloat(v);if(n>60&&n<500){wLb=n;store.set('tp_wlb',n);renderDash()}}
 const fmtT=sec=>{sec=Math.round(sec);const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return h?`${h}:${pad(m)}:${pad(s)}`:`${m}:${pad(s)}`};
@@ -482,7 +509,7 @@ function predBlock(){
 }
 function renderDash(){
   const el=$('#dash');
-  if(!ST){el.innerHTML=`<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">Connect your intervals.icu account to analyze your last 4 weeks of training and build a structured triathlon plan.</p><button class="btn" onclick="$('#dlg').showModal()">Connect intervals.icu</button> <button class="btn alt" onclick="demoData()">Try demo data</button></div>`;return}
+  if(!ST){el.innerHTML=`<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">Connect your intervals.icu account to analyze your last 4 weeks of training and build a structured triathlon plan.</p><button class="btn" onclick="$('#modalSet').classList.add('active')">Connect intervals.icu</button> <button class="btn alt" onclick="demoData()">Try demo data</button></div>`;return}
   const k=(l,v,s)=>`<div class="kpi"><span>${l}</span><b>${v}</b><em class="muted">${s||''}</em></div>`;
   const tr=ST.trend;
   el.innerHTML=`<div class="grid kpis" style="margin-bottom:18px">
@@ -771,115 +798,6 @@ function renderRoad(){
    <details style="margin-top:10px"><summary class="small"><b>Week-by-week table</b></summary><div style="overflow-x:auto"><table><tr><th>Wk</th><th>Dates</th><th>Phase</th><th>Target</th><th>Race / building toward</th></tr>${rows}</table></div></details>`;
 }
 
-/* ---------- check-in ---------- */
-function plannedHoursFor(key){
-  const w=weeksLog[key];if(w)return w.sessions.filter(s=>s.on&&s.sport!=='race').reduce((a,s)=>a+s.mins,0)/60;
-  if(plannedLog[key]!=null)return plannedLog[key];
-  const r=road&&road.weeks.find(x=>x.start===key);return r?r.hours:null;
-}
-const WDW={swimQ:.13,swimE:.13,swimT:.13,bikeQ:.2,bikeE:.13,runQ:.18,runE:.13};
-function buildWeek(ws,ci){
-  const key=ymd(ws),why=[];
-  if(!road||!road.weeks.some(w=>w.start===key)){
-    road=buildRoadmap({start:key,weeks:+$('#r_weeks').value\vert{}\vert{}12,ramp:+$('#r_ramp').value||.08});
-    store.set('tp_road',road);renderRoad();why.push('No roadmap covered this week, so a new one was started here.');
-  }
-  const rw=road.weeks.find(w=>w.start===key),phase=rw.phase,pi=PI[phase];
-  let h=rw.hours;
-  why.push(`Roadmap: ${phase} phase, week ${rw.n} of ${road.weeks.length}${rw.rec?' (recovery week)':''}${rw.target?` → building toward ${esc(rw.target.name)}`:''} · ${h.toFixed(1)} h target.`);
-  let f=1;
-  const E={5:1.05,4:1,3:.93,2:.8,1:.65}[ci.energy]||1;
-  if(E!==1){f*=E;why.push(`Energy ${ci.energy}/5 → volume ×${E}.`)}
-  if(ci.sleep==='poor'){f*=.95;why.push('Poor sleep → volume ×0.95.')}
-  if(ci.sore==='mild'){f*=.95;why.push('Mild soreness → volume ×0.95.')}
-  if(ci.sore==='sig'){f*=.8;why.push('Significant soreness → volume ×0.8 and no hard sessions.')}
-  const sick=/\b(sick|ill|flu|fever|covid|cold|injur\w*|pain)\b/i.test(ci.notes||'');
-  if(sick){f*=.5;why.push('Illness/injury detected → volume ×0.5, easy sessions only.')}
-  if(ST&&ST.form!=null&&ST.form<-25){f*=.9;why.push(`Form (TSB) is ${ST.form.toFixed(0)} — high fatigue → volume ×0.9.`)}
-  const pl=plannedHoursFor(ymd(addDays(ws,-7)));
-  if(ST&&pl&&!rw.rec){
-    const act=ST.wk[3].s/3600,ratio=act/pl;
-    if(ratio<.7){const c=act*1.1;if(c<h*f){h=c/f;why.push(`Last 7 days: ${act.toFixed(1)} h vs ${pl.toFixed(1)} h planned (${(ratio*100).toFixed(0)}%) → volume moderated.`)}}
-    else why.push(`Last 7 days: ${act.toFixed(1)} h vs ${pl.toFixed(1)} h planned (${(ratio*100).toFixed(0)}%) — on track.`);
-  }
-  h*=f;
-  if(ci.cap&&h>ci.cap){h=ci.cap;why.push(`Capped at your ${ci.cap} h limit.`)}
-  h=Math.max(h,2);
-  const downgrade=sick||ci.sore==='sig'||ci.energy<=2||phase==='Recover';
-  if(downgrade)why.push(phase==='Recover'?'Post-race recovery week → easy sessions only.':'Hard sessions replaced with easy aerobic sets.');
-  const hot=!downgrade&&['Base','Build','Peak'].includes(phase);
-  const fm=new Map(),act=goals.filter(g=>g.type==='fitness'&&pd(g.start)<=addDays(ws,6)&&addDays(pd(g.end),1)>ws);
-  act.forEach(g=>focusOf(g).forEach(x=>{if(!fm.has(x))fm.set(x,g)}));
-  (ci.focus||[]).forEach(x=>fm.set(x,{name:'Weekly focus'}));
-  if(rw.target&&DIST[rw.target.dist].type==='run'&&hot){const x=['5k','10k'].includes(rw.target.dist)?'speed':'durability';if(!fm.has(x))fm.set(x,{name:`Race: ${rw.target.name}`})}
-  if(hot&&fm.size)why.push('Focus this week: '+[...new Set([...fm.entries()].map(([x,g])=>`${esc(g.name)} → ${FLABEL[x]}`))].join('; ')+'.');
-  
-  const A=rw.n%2===1,strDays=ci.strDays||3;
-  let T=[{d:1,role:'swimQ'},{d:1,role:A?'runE':'bikeE'},{d:2,role:A?'bikeQ':'runQ'},{d:2,role:'strA'},{d:3,role:A?'runQ':'bikeQ'},{d:3,role:'strB'},{d:4,role:'swimE'},{d:4,role:A?'bikeE':'runE'},{d:4,role:'core'},{d:ci.longBikeDay,role:'longBike'},{d:ci.longRunDay,role:'longRun'}];
-  if(strDays>=4||(hot&&fm.has('strength')))T.push({d:1,role:'core'});
-  const today=new Date(),todayMid=new Date(today.getFullYear(),today.getMonth(),today.getDate()),rd=rw.raceDay?(pd(rw.raceDay).getDay()+6)%7:7,avail=new Set(ci.days);
-  const dropped=[];
-  T=T.filter(t=>{const date=addDays(ws,t.d);
-    if(date<todayMid)return false;if(t.d>=rd)return false;if(rw.raceDay&&(t.role==='longBike'||t.role==='longRun'))return false;
-    if(!avail.has(t.d)){dropped.push(t);return false}return true});
-  if(avail.has(0)&&dropped.length&&addDays(ws,0)>=todayMid&&0<rd){
-    const cand=dropped.filter(t=>!t.role.startsWith('swim'));
-    if(cand.length){const fd=Math.min(...cand.map(t=>t.d)),mv=dropped.filter(t=>t.d===fd&&!t.role.startsWith('swim'));
-      mv.forEach(t=>{T.push({...t,d:0});dropped.splice(dropped.indexOf(t),1)});why.push(`Rest day switched: ${DN[fd]} sessions moved to Monday.`)}
-  }
-  why.push(`Schedule: pool Tue & Fri · long ride ${DN[ci.longBikeDay]} · long run ${DN[ci.longRunDay]} · ${A?'Tue swim+run, Fri swim+bike':'Tue swim+bike, Fri swim+run'} · ${strDays} strength/core days.`);
-  if(dropped.length)why.push(`Skipped (unavailable): ${[...new Set(dropped.map(t=>DN[t.d]))].join(', ')}.`);
-  if(rw.raceDay)why.push('Race week: long sessions removed; rest on and following race day.');
-  if(!T.length&&!rw.raceDay)return{err:'No sessions fit your available days.'};
-  
-  T=T.map(t=>{t={...t};
-    const tag=(x)=>{if(hot&&fm.has(x)){const g=fm.get(x);t.g=g.name;t.tg=tgt(g,ROLE[t.role][0])}};
-    if(downgrade){if(t.role==='bikeQ')t.role='bikeE';else if(t.role==='runQ')t.role='runE';else if(t.role==='swimQ')t.role='swimT'}
-    if(t.role==='bikeQ'){
-      if(hot&&fm.has('ftp')){t.v=pi===0?'ss':pi===1?'thr':'thr2';tag('ftp')}
-      else if(hot&&fm.has('vo2')&&pi>0){t.v='vo2';tag('vo2')}
-      else if(hot&&fm.has('hills')){t.v='hill';tag('hills')}
-      else t.v=pi===2?'thr':'ss';
-    }else if(t.role==='bikeE'&&hot&&fm.has('ftp')){t.role='bikeQ';t.v='tempo';tag('ftp')}
-    else if(t.role==='runQ'){
-      if(hot&&fm.has('speed')){t.v='speed';tag('speed')}
-      else if(hot&&fm.has('vo2')&&pi>0){t.v='vo2';tag('vo2')}
-      else if(hot&&fm.has('hills')){t.v='hill';tag('hills')}
-      else t.v=pi===0?'tempo':pi===1?'thr':'speed';
-    }else if(t.role==='runE'){
-      if(hot&&fm.has('speed')){t.v='strides';tag('speed')}
-      if(hot&&fm.has('durability')){t.extra=15;tag('durability')}
-    }else if(t.role==='longRun'){
-      t.v=pi===0?'easy':'prog';
-      if(hot&&(fm.has('durability')||fm.has('endurance'))){t.v=pi===2?'prog2':'prog';t.mult=1.1;tag(fm.has('durability')?'durability':'endurance')}
-    }else if(t.role==='longBike'){
-      t.v=pi===0?'z2':pi===1?'tempoBlocks':'raceSpec';
-      if(hot&&fm.has('ftp')&&pi===0){t.v='tempoBlocks';tag('ftp')}
-      if(hot&&fm.has('endurance')){t.mult=1.1;tag('endurance')}
-    }else if(t.role==='swimE'&&hot&&fm.has('swim')){t.role='swimQ';tag('swim')}
-    return t});
-  
-  const taper=phase==='Taper'||phase==='Race',runType=rw.target&&DIST[rw.target.dist].type==='run',HM=h*60;
-  const fr=runType?{lb:.2,lr:.22}:{lb:.28,lr:.17},lo=taper?35:60;
-  const LB=clamp(r5(HM*fr.lb*((T.find(t=>t.role==='longBike')||{}).mult||1)),lo,210),LR=clamp(r5(HM*fr.lr*((T.find(t=>t.role==='longRun')||{}).mult||1)),taper?30:45,150);
-  const smin={strA:30,strB:30,core:15},stren=T.reduce((a,t)=>a+(smin[t.role]||0),0),WB=Math.max(HM-LB-LR-stren,110);
-  const wm=t=>(WDW[t.role]||0)*((t.role.startsWith('swim')&&hot&&fm.has('swim'))?1.3:1)*((t.role.startsWith('bike')&&hot&&(fm.has('ftp')||fm.has('vo2')))?1.15:1)*((t.role.startsWith('run')&&hot&&fm.has('speed'))?1.2:1)*(runType&&t.role.startsWith('run')?1.3:1);
-  const wsum=T.reduce((a,t)=>a+wm(t),0)||1;
-  const sessions=T.map(t=>{
-    const date=ymd(addDays(ws,t.d));let mins;
-    if(t.role==='longBike')mins=LB;else if(t.role==='longRun')mins=LR;else if(smin[t.role])mins=smin[t.role];
-    else{const hi=t.role.startsWith('swim')?60:75;mins=clamp(r5(WB*wm(t)/wsum)+(t.extra||0),taper?25:30,hi)}
-    return mkSession(date,t.role,mins,t.v,t.g,pi,phase,t.tg,null);
-  });
-  if(rw.raceDay&&rw.race){const r=rw.race,ds=rw.raceDay;sessions.push({date:ds,sport:'race',role:'race',kind:'race',mins:0,title:r.name,main:r.name,desc:`${r.name} · ${DIST[r.dist].n}`,tss:0,phase,goal:null,on:true,text:'',blocks:[{name:'Race day',mins:0,what:`${r.name} · ${DIST[r.dist].n}`,target:''}],eid:'tripulse-race-'+ds,race:r,eventId:null,syncedAt:null})}
-  sessions.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
-  {const busy=new Set(sessions.map(s=>s.date)),rest=DN.filter((d,i)=>{const dt=addDays(ws,i);return dt>=todayMid&&!busy.has(ymd(dt))});if(rest.length)why.push(`Rest day${rest.length>1?'s':''}: ${rest.join(', ')}.`)}
-  const got=sessions.filter(s=>s.sport!=='race').reduce((a,s)=>a+s.mins,0)/60;
-  if(got<h*.88)why.push(`Planned ${got.toFixed(1)} h vs ${h.toFixed(1)} h target – weekday ≤ 1h15, long ride ≤ 3h30, long run ≤ 2h30 caps applied.`);
-  const prev=weeksLog[key],oldIds=prev?[...(prev.oldIds||[]),...prev.sessions.map(s=>s.eventId).filter(Boolean)]:[];
-  return{start:key,phase,n:rw.n,total:road.weeks.length,sessions,why,made:Date.now(),oldIds,syncedAt:null};
-}
-
 /* ---------- check-in UI ---------- */
 const DN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 function readCI(){return{week:$('#c_week').value,energy:+$('#c_energy').value,sleep:$('#c_sleep').value,sore:$('#c_sore').value,cap:null,longBikeDay:+$('#c_long').value,longRunDay:+$('#c_longrun').value,strDays:+$('#c_str').value,focus:$$('#c_focus input').filter(x=>x.checked).map(x=>x.value),notes:$('#c_notes').value.trim(),days:$$('#c_days input').filter(x=>x.checked).map(x=>+x.value)}}
@@ -907,7 +825,7 @@ function updTotals(){
   $('#wkTotals').innerHTML=`<span><b>${hrs_.toFixed(1)} h</b> total</span><span><b>${tss}</b> est. TSS</span>`+['swim','bike','run','strength'].filter(x=>by[x]).map(x=>`<span>${ICON[x]} ${(by[x]/60).toFixed(1)} h</span>`).join('');
   $('#syncWeek').textContent=`☁ Sync all ${on.length} selected`;
   const n=w.sessions.filter(s=>s.syncedAt).length;
-  $('#syncInfo').innerHTML=n?`<span style="color:var(--ok)">✔ ${n} of ${w.sessions.length} synced</span> – re-syncing replaces the earlier copy.`:'<span class="muted">Nothing synced yet.</span>';
+  $('#syncInfo').innerHTML=n?`<span style="color:var(--ok)">✔ ${n} of ${w.sessions.length} synced</span> – re-syncing replaces earlier copy.`:'<span class="muted">Nothing synced yet.</span>';
 }
 function togS(i,v){curWeek.sessions[i].on=v;weeksLog[curWeek.start]=curWeek;store.set('tp_weeks',weeksLog);updTotals()}
 function renderWeek(){
@@ -961,41 +879,52 @@ function csvWeek(){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=`tripulse-week-${w.start}.csv`;a.click();
 }
 
-/* ---------- ui wiring ---------- */
+/* ---------- event bindings ---------- */
 $$('nav button').forEach(b=>b.onclick=()=>{$$('nav button').forEach(x=>x.classList.toggle('on',x===b));$$('.tab').forEach(t=>t.classList.toggle('on',t.id===b.dataset.t))});
 
-$('#openSet').onclick=()=>{$('#s_id').value=cfg.id;$('#s_key').value=cfg.key;$('#s_msg').textContent='';$('#dlg').showModal()};
-$('#closeSet').onclick=()=>$('#dlg').close();
-$('#demo').onclick=()=>{$('#dlg').close();demoData()};
+// Intervals.icu Modal
+$('#openSet').onclick=()=>{
+  $('#s_id').value=cfg.id;
+  $('#s_key').value=cfg.key;
+  $('#s_msg').textContent='';
+  $('#modalSet').classList.add('active');
+};
+$('#closeSet').onclick=()=>$('#modalSet').classList.remove('active');
+$('#demo').onclick=()=>{$('#modalSet').classList.remove('active');demoData()};
 $('#saveSet').onclick=async()=>{
   cfg={id:$('#s_id').value.trim(),key:$('#s_key').value.trim()};
   if(!cfg.id||!cfg.key){$('#s_msg').textContent='Enter both Athlete ID and API key.';return}
   store.set('tp_cfg',cfg);$('#s_msg').textContent='Syncing…';
-  if(await sync())$('#dlg').close();
+  if(await sync())$('#modalSet').classList.remove('active');
 };
 
+// Firebase Modal
 $('#openFbSet').onclick=()=>{
   const existing = localStorage.getItem(FB_KEY);
   if(existing) $('#fb_cfg').value = existing;
   $('#fb_msg').textContent = '';
-  $('#dlgFb').showModal();
+  $('#modalFb').classList.add('active');
 };
-$('#closeFb').onclick=()=>$('#dlgFb').close();
+$('#closeFb').onclick=()=>$('#modalFb').classList.remove('active');
 $('#saveFb').onclick=async()=>{
-  const raw = $('#fb_cfg').value.trim();
-  try{
-    const parsed = JSON.parse(raw);
-    localStorage.setItem(FB_KEY, raw);
-    const ok = await initFirebase(parsed);
-    if(ok){
-      $('#dlgFb').close();
-    } else {
-      $('#fb_msg').textContent = 'Could not connect to Firebase.';
-    }
-  }catch(e){
-    $('#fb_msg').textContent = 'Invalid JSON: enter a valid Firebase Web config.';
+  const raw = $('#fb_cfg').value;
+  const parsed = parseConfig(raw);
+  if(!parsed || !parsed.apiKey){
+    $('#fb_msg').textContent = 'Could not parse config. Ensure apiKey, authDomain, and projectId are included.';
+    return;
   }
-};
+  $('#fb_msg').style.color = 'var(--mut)';
+  $('#fb_msg').textContent = 'Connecting to Firebase Cloud…';
+  
+  localStorage.setItem(FB_KEY, JSON.stringify(parsed, null, 2));
+  const ok = await initFirebase(parsed);
+  if(ok){
+    $('#modalFb').classList.remove('active');
+  } else {
+    $('#fb_msg').style.color = 'var(--bad)';
+    $('#fb_msg').textContent = 'Firebase connection failed. Check your browser console or ensure Anonymous Auth is enabled.';   } };  // Close modal when tapping background $$('.modal-overlay').forEach(ov=>{
+  ov.addEventListener('click', e=>{ if(e.target === ov) ov.classList.remove('active'); });
+});
 
 function renderAll(){analyze();renderDash();renderGoals();renderPlanTab()}
 $('#c_days').innerHTML=DN.map((d,i)=>`<label><input type="checkbox" value="${i}" ${i>=1?'checked':''}>${d}</label>`).join('');
