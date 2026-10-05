@@ -589,7 +589,7 @@ function bikeW(role,v,pi,mins){
 function runW(role,v,pi,mins){
   const m=Math.round(mins),sec=[],rp=rpMin(),Z1=pace(1.35);let title;
   const wu=role==='runQ'?12:role==='longRun'?10:8,cd=role==='runQ'?8:5,M=m-wu-cd;
-  sec.push(S('Warmup',[st(`${wu}m ramp 70%-82% pace`,wu*60)],1,'Ramp from very easy up to easy pace'));
+  sec.push(S('Warmup',[st(`${wu}m ${Z1}`,wu*60)],1,'Very easy pace'));
   if(role==='runE'){
     const sM=v==='strides'?4:0;
     sec.push(S('Aerobic run',[st(`${fmtDur(M-sM)} ${pace(1.22)}`,(M-sM)*60)],1,`Easy pace${paceMi(1.22)?' ≈ '+paceMi(1.22):''}`));
@@ -627,7 +627,7 @@ function runW(role,v,pi,mins){
       title=`Long run ${fmtDur(m)}`;
     }
   }
-  sec.push(S('Cooldown',[st(`${cd}m ramp 82%-68% pace`,cd*60)],1,'Ramp down to a very easy jog'));
+  sec.push(S('Cooldown',[st(`${cd}m ${Z1}`,cd*60)],1,'Very easy pace'));
   return{sections:sec,title,header:''};
 }
 function strW(role,mins){
@@ -905,17 +905,9 @@ function csvWeek(){
 /* ---------- cloud sync: Firebase (Auth + Firestore) ---------- */
 // To bake your Firebase config into this file (so every computer just signs in), paste the object here, e.g.
 // const FIREBASE_CONFIG={apiKey:"...",authDomain:"your-app.firebaseapp.com",projectId:"your-app",appId:"..."};
-const FIREBASE_CONFIG={
-  apiKey: "AIzaSyCwBrPoR8tOPmsP3RmXHFCsDXiOii9F8pQ",
-  authDomain: "tripulsetraining.firebaseapp.com",
-  projectId: "tripulsetraining",
-  storageBucket: "tripulsetraining.firebasestorage.app",
-  messagingSenderId: "1057595772675",
-  appId: "1:1057595772675:web:5409356961362d44022336"
-}
-;
+const FIREBASE_CONFIG=null;
 // Only this Google account may use the cloud-synced app (set it to your own address, e.g. 'you@gmail.com'):
-const ALLOWED_EMAIL='greenstone.scott@gmail.com';
+const ALLOWED_EMAIL='';
 let lockMsg='';
 const isOwner=u=>!!u&&!!ALLOWED_EMAIL&&u.emailVerified&&String(u.email||'').toLowerCase()===ALLOWED_EMAIL.toLowerCase();
 function lockUI(){
