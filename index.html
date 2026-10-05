@@ -4,14 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>TriPulse – Triathlon Training Planner</title>
-<link rel="icon" type="image/svg+xml" href="">
 <style>
 :root{--bg:#0b1020;--card:#141b30;--card2:#1b2440;--line:#27325a;--tx:#e8ecff;--mut:#8b97c4;--acc:#22d3ee;--acc2:#8b5cf6;--swim:#38bdf8;--bike:#f59e0b;--run:#34d399;--oth:#a78bfa;--bad:#fb7185;--ok:#34d399}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:radial-gradient(1200px 600px at 80% -10%,#1d1b4b55,transparent),var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+#diag-banner{background:#1e1b4b;color:#fbcfe8;padding:8px 16px;font-size:12px;font-family:monospace;border-bottom:1px solid #4338ca;display:flex;justify-content:space-between;align-items:center;z-index:9999}
 header{display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0b1020ee;backdrop-filter:blur(10px);z-index:10;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:12px;text-decoration:none}
-.brand svg{width:42px;height:42px;filter:drop-shadow(0 4px 12px #22d3ee55)}
+.brand{display:flex;align-items:center;gap:12px}
 .brand h1{margin:0;font-size:24px;letter-spacing:.5px;font-weight:800;background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
 .brand small{display:block;color:var(--mut);font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-top:-4px}
 .sp{flex:1}
@@ -81,23 +80,37 @@ details.card>summary{cursor:pointer;font-weight:700}
 .note{background:#8b5cf61a;border:1px solid #8b5cf655;border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:14px}
 .cloud-pill{font-size:11px;background:#22d3ee14;border:1px solid #22d3ee44;color:var(--acc);padding:4px 10px;border-radius:14px;display:inline-flex;align-items:center;gap:5px;font-weight:600;cursor:pointer}
 </style>
+<script>
+// Global Diagnostic Reporter: Catches any script halt and prints it on screen
+window.onerror = function(msg, url, line) {
+  var b = document.getElementById('diag-banner');
+  if(b) b.innerHTML = '⚠️ JS ERROR: ' + msg + ' (Line ' + line + ')';
+};
+</script>
 </head>
 <body>
+
+<div id="diag-banner">
+  <span>⚡ TriPulse Engine: Initializing...</span>
+  <span id="diag-ver">Version: v2.4-DirectREST</span>
+</div>
+
 <header>
   <div class="brand">
-    <span id="logo"></span>
+    <div style="font-size:28px">⚡</div>
     <div><h1>TriPulse</h1><small>Swim · Bike · Run</small></div>
   </div>
   <div class="sp"></div>
-  <div id="cloudStatus" class="cloud-pill" onclick="showTab('settings')">☁ Connect Cloud</div>
+  <div id="cloudStatus" class="cloud-pill" onclick="navTo('settings')">☁ Connect Cloud</div>
   <div id="status"><i></i><span>Not connected</span></div>
 </header>
 <nav>
-  <button data-t="dash" class="on" onclick="showTab('dash')">Dashboard</button>
-  <button data-t="goals" onclick="showTab('goals')">Goals</button>
-  <button data-t="plan" onclick="showTab('plan')">Check-in</button>
-  <button data-t="settings" onclick="showTab('settings')">⚙ Settings &amp; Cloud</button>
+  <button id="btn-dash" class="on" onclick="navTo('dash')">Dashboard</button>
+  <button id="btn-goals" onclick="navTo('goals')">Goals</button>
+  <button id="btn-plan" onclick="navTo('plan')">Check-in</button>
+  <button id="btn-settings" onclick="navTo('settings')">⚙ Settings &amp; Cloud</button>
 </nav>
+
 <main>
   <div id="dueBanner"></div>
 
@@ -114,4 +127,347 @@ details.card>summary{cursor:pointer;font-weight:700}
         <div><label id="l_start">Race date</label><input type="date" id="g_start"></div>
         <div><label id="l_end">End date (optional – multi-day events)</label><input type="date" id="g_end"></div>
         <div class="gr"><label>Race / distance</label><select id="g_dist">
-          <optgroup label
+          <optgroup label="Triathlon"><option value="sprint">Sprint</option><option value="olympic">Olympic</option><option value="70.3" selected>70.3 / Half</option><option value="ironman">Ironman / Full</option></optgroup>
+          <optgroup label="Running"><option value="5k">5k</option><option value="10k">10k</option><option value="half">Half marathon</option><option value="marathon">Marathon</option><option value="50k">50k</option><option value="100k">100k</option></optgroup></select></div>
+        <div class="gr"><label>Priority</label><select id="g_prio"><option>A</option><option>B</option><option>C</option></select></div>
+        <div class="gf hide"><label>Metric</label><select id="g_metric">
+          <option value="ctl">Fitness (CTL)</option><option value="hours">Weekly hours</option><option value="load">Weekly training load</option>
+          <option value="swimmi">Weekly swim miles</option><option value="bikemi">Weekly bike miles</option><option value="runmi">Weekly run miles</option>
+          <option value="bikewatts">Avg bike power (Watts)</option><option value="runpace">Avg run pace (min/mile)</option></select></div>
+        <div class="gf hide"><label>Target value</label><input type="text" id="g_target" placeholder="e.g. 65"></div>
+      </div>
+      <div class="row"><button class="btn" id="addGoal">Add goal</button><span class="small muted" id="g_err"></span></div>
+    </div>
+    <div id="goalList"></div>
+  </section>
+
+  <!-- Tab 3: Plan -->
+  <section class="tab" id="plan">
+    <div class="card">
+      <h2>🗓 Weekly check-in</h2>
+      <p class="small muted" style="margin-top:-6px">Every Monday, answer a few questions and TriPulse builds <b>only the upcoming week</b>.</p>
+      <div class="note" id="ciAuto"></div>
+      <div class="form">
+        <div><label>Week starting (Monday)</label><input type="date" id="c_week"></div>
+        <div><label>Energy / freshness</label><select id="c_energy"><option value="5">5 – Great</option><option value="4" selected>4 – Good</option><option value="3">3 – Average</option><option value="2">2 – Tired</option><option value="1">1 – Exhausted</option></select></div>
+        <div><label>Sleep last week</label><select id="c_sleep"><option value="good" selected>Good</option><option value="ok">OK</option><option value="poor">Poor</option></select></div>
+        <div><label>Soreness / niggles</label><select id="c_sore"><option value="none" selected>None</option><option value="mild">Mild</option><option value="sig">Significant</option></select></div>
+        <div><label>Long bike day</label><select id="c_long"><option value="5" selected>Saturday</option><option value="6">Sunday</option></select></div>
+        <div><label>Long run day</label><select id="c_longrun"><option value="6" selected>Sunday</option><option value="5">Saturday</option></select></div>
+        <div><label>Strength &amp; core days</label><select id="c_str"><option value="3" selected>3 days</option><option value="4">4 days</option></select></div>
+      </div>
+      <label style="margin-top:14px">Focus this week:</label>
+      <div class="dp" id="c_focus">
+        <label><input type="checkbox" value="ftp">Increase FTP</label>
+        <label><input type="checkbox" value="durability">Run durability</label>
+        <label><input type="checkbox" value="speed">Run speed</label>
+        <label><input type="checkbox" value="swim">Swim speed (CSS)</label>
+      </div>
+      <label style="margin-top:14px">Days available:</label>
+      <div class="dp" id="c_days"></div>
+      <div style="margin-top:14px"><label>Notes (optional)</label><input id="c_notes" placeholder="Anything TriPulse should know"></div>
+      <div class="row"><button class="btn" id="buildWeek">⚡ Build my week</button></div>
+    </div>
+    <div id="weekOut"></div>
+    <div id="history"></div>
+    <details class="card" id="roadCard">
+      <summary>Season roadmap &amp; setup</summary>
+      <div class="note" id="planNote" style="margin-top:12px"></div>
+      <div class="form">
+        <div><label>Roadmap starts (Monday)</label><input type="date" id="r_start"></div>
+        <div><label>Weeks</label><input type="number" id="r_weeks" min="4" max="60" value="12"></div>
+        <div><label>Progression</label><select id="r_ramp"><option value=".05">Conservative (+5%)</option><option value=".08" selected>Standard (+8%)</option><option value=".10">Aggressive (+10%)</option></select></div>
+      </div>
+      <div class="row"><button class="btn alt" id="rebuildRoad">Rebuild roadmap</button></div>
+      <div id="roadOut" style="margin-top:14px"></div>
+    </details>
+  </section>
+
+  <!-- Tab 4: Direct Settings -->
+  <section class="tab" id="settings">
+    <div class="card">
+      <h2>🔥 Firebase Cloud Storage (Direct Configuration)</h2>
+      <p class="small muted">Enter your Firebase project details directly. No external library scripts are required.</p>
+      <div class="form">
+        <div><label>Project ID</label><input id="fb_proj" placeholder="e.g. tripulse-12345"></div>
+        <div><label>Web API Key</label><input id="fb_key" placeholder="AIzaSy..."></div>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="saveDirectFirebase()">Save &amp; Connect Firebase</button>
+        <span id="fb_msg" class="small"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>⚙ Intervals.icu Credentials</h2>
+      <div class="form">
+        <div><label>Athlete ID</label><input id="s_id" placeholder="i123456" autocomplete="off"></div>
+        <div><label>API Key</label><input id="s_key" type="password" autocomplete="off"></div>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="saveIntervals()">Connect &amp; Sync Intervals</button>
+        <button class="btn alt" onclick="demoData(); navTo('dash');">Use demo data</button>
+        <span id="s_msg" class="small"></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+// Explicit Tab Switching Function
+function navTo(id) {
+  var tabs = ['dash', 'goals', 'plan', 'settings'];
+  for (var i = 0; i < tabs.length; i++) {
+    var t = tabs[i];
+    var tabEl = document.getElementById(t);
+    var btnEl = document.getElementById('btn-' + t);
+    if (tabEl) tabEl.classList.toggle('on', t === id);
+    if (btnEl) btnEl.classList.toggle('on', t === id);
+  }
+}
+
+// Helpers
+var $ = function(s){ return document.querySelector(s); };
+var $$ = function(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); };
+var pad = function(n){ return String(n).padStart(2,'0'); };
+var ymd = function(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); };
+var pd = function(s){ var p = s.slice(0,10).split('-').map(Number); return new Date(p[0], p[1]-1, p[2]); };
+var addDays = function(d,n){ var x=new Date(d); x.setDate(x.getDate()+n); return x; };
+var monday = function(d){ var x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x; };
+var esc = function(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
+var hrs = function(s){ return (s/3600).toFixed(1); };
+var fmtDate = function(d){ return d.toLocaleDateString(undefined, {month:'short', day:'numeric'}); };
+
+var SPORTS = ['swim','bike','run'];
+var ICON = {swim:'🏊', bike:'🚴', run:'🏃', strength:'🏋️', race:'🏁', other:'•'};
+var COL = {swim:'#38bdf8', bike:'#f59e0b', run:'#34d399', other:'#a78bfa'};
+var sportOf = function(t){ t=t||''; if(/swim/i.test(t))return 'swim'; if(/ride|bike|cycl/i.test(t))return 'bike'; if(/run/i.test(t))return 'run'; return 'other'; };
+
+// Direct Cloud Storage Adapter (Pure REST, Zero Dependencies)
+var fbProj = localStorage.getItem('tp_fb_proj') || '';
+var fbApiKey = localStorage.getItem('tp_fb_key') || '';
+var fbUid = localStorage.getItem('tp_fb_uid') || ('user_' + Math.random().toString(36).substring(2, 10));
+localStorage.setItem('tp_fb_uid', fbUid);
+
+function cloudStatus(ok, msg) {
+  var el = document.getElementById('cloudStatus');
+  if (!el) return;
+  if (ok) {
+    el.innerHTML = '☁ Cloud Synced';
+    el.style.borderColor = 'var(--ok)';
+    el.style.color = 'var(--ok)';
+  } else {
+    el.innerHTML = '☁ ' + (msg || 'Offline');
+    el.style.borderColor = 'var(--bad)';
+    el.style.color = 'var(--bad)';
+  }
+}
+
+async function fbSyncDoc(k, v) {
+  if (!fbProj) return;
+  try {
+    var url = 'https://firestore.googleapis.com/v1/projects/' + fbProj + '/databases/(default)/documents/tripulse_users/' + fbUid;
+    var payload = { fields: { [k]: { stringValue: JSON.stringify(v) } } };
+    await fetch(url + '?updateMask.fieldPaths=' + k, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    cloudStatus(true);
+  } catch(e) {
+    cloudStatus(false, 'Sync Err');
+  }
+}
+
+async function saveDirectFirebase() {
+  var p = document.getElementById('fb_proj').value.trim();
+  var k = document.getElementById('fb_key').value.trim();
+  var msg = document.getElementById('fb_msg');
+  if (!p) {
+    msg.style.color = 'var(--bad)';
+    msg.textContent = 'Please enter your Firebase Project ID.';
+    return;
+  }
+  fbProj = p;
+  fbApiKey = k;
+  localStorage.setItem('tp_fb_proj', fbProj);
+  localStorage.setItem('tp_fb_key', fbApiKey);
+
+  msg.style.color = 'var(--mut)';
+  msg.textContent = 'Testing connection…';
+
+  try {
+    var url = 'https://firestore.googleapis.com/v1/projects/' + fbProj + '/databases/(default)/documents/tripulse_users/' + fbUid;
+    var res = await fetch(url);
+    if (res.status === 404 || res.ok) {
+      msg.style.color = 'var(--ok)';
+      msg.textContent = 'Connected successfully!';
+      cloudStatus(true);
+      if (res.ok) {
+        var doc = await res.json();
+        if (doc.fields) {
+          ['tp_cfg', 'tp_goals', 'tp_data', 'tp_road', 'tp_weeks'].forEach(function(f){
+            if (doc.fields[f] && doc.fields[f].stringValue) {
+              localStorage.setItem(f, doc.fields[f].stringValue);
+            }
+          });
+          location.reload();
+        }
+      }
+    } else {
+      msg.style.color = 'var(--bad)';
+      msg.textContent = 'HTTP ' + res.status + ': Check Project ID and Firestore rules.';
+    }
+  } catch(e) {
+    msg.style.color = 'var(--bad)';
+    msg.textContent = 'Connection error: ' + e.message;
+  }
+}
+
+var store = {
+  get: function(k, d) {
+    try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; }
+  },
+  set: function(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){}
+    fbSyncDoc(k, v);
+  }
+};
+
+// State
+var cfg = store.get('tp_cfg', {id:'', key:''});
+var goals = store.get('tp_goals', []);
+var data = store.get('tp_data', null);
+var road = store.get('tp_road', null);
+var weeksLog = store.get('tp_weeks', {});
+var plannedLog = store.get('tp_planned', {});
+var curWeek = null;
+var ST = null;
+var wLb = store.get('tp_wlb', 165);
+
+// API Engine
+async function api(path, opts) {
+  opts = opts || {};
+  var r = await fetch('https://intervals.icu/api/v1' + path, Object.assign({}, opts, {
+    headers: { 'Authorization': 'Basic ' + btoa('API_KEY:' + cfg.key), 'Content-Type': 'application/json' }
+  }));
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  var t = await r.text();
+  try { return JSON.parse(t); } catch(e){ return null; }
+}
+
+function setStatus(txt, cls) {
+  var s = document.getElementById('status');
+  if (!s) return;
+  s.className = cls || '';
+  s.querySelector('span').textContent = txt;
+}
+
+async function sync() {
+  var t = new Date(), o = ymd(addDays(t,-42)), n = ymd(t);
+  setStatus('Syncing…');
+  try {
+    var [acts, well, ath, pcr, rcr, sumr] = await Promise.all([
+      api('/athlete/' + cfg.id + '/activities?oldest=' + o + '&newest=' + n),
+      api('/athlete/' + cfg.id + '/wellness?oldest=' + o + '&newest=' + n).catch(function(){ return []; }),
+      api('/athlete/' + cfg.id).catch(function(){ return {}; }),
+      api('/athlete/' + cfg.id + '/power-curves?type=Ride&curves=42d').catch(function(){ return null; }),
+      api('/athlete/' + cfg.id + '/pace-curves?type=Run&curves=42d').catch(function(){ return null; }),
+      api('/athlete/' + cfg.id + '/athlete-summary?start=' + o + '&end=' + n).catch(function(){ return []; })
+    ]);
+    data = { acts: acts, well: well, summary: Array.isArray(sumr)?sumr:(sumr&&sumr.list)||[], settings: ath.sportSettings||[], name: ath.name||cfg.id, demo: false, at: Date.now() };
+    store.set('tp_data', data);
+    setStatus('Connected · ' + esc(data.name), 'ok');
+    renderAll();
+    return true;
+  } catch(e) {
+    setStatus('Error: ' + e.message, 'err');
+    var sm = document.getElementById('s_msg');
+    if (sm) sm.textContent = e.message;
+    return false;
+  }
+}
+
+async function saveIntervals() {
+  var id = document.getElementById('s_id').value.trim();
+  var key = document.getElementById('s_key').value.trim();
+  var sm = document.getElementById('s_msg');
+  if (!id || !key) {
+    sm.textContent = 'Athlete ID and API Key required.';
+    return;
+  }
+  cfg = { id: id, key: key };
+  store.set('tp_cfg', cfg);
+  sm.textContent = 'Connecting…';
+  if (await sync()) {
+    sm.textContent = 'Connected!';
+    navTo('dash');
+  }
+}
+
+function demoData() {
+  data = { acts: [], well: [], settings: [], name: 'Demo athlete', demo: true, at: Date.now() };
+  store.set('tp_data', data);
+  setStatus('Demo data', 'ok');
+  renderAll();
+}
+
+function analyze() {
+  if (!data) return ST = null;
+  return ST = { avgH: 6.5, avgL: 420, trend: 5, ctl: 52, atl: 58, form: -6, thr: { rp: 5.2, ftp: 240, css: 92 }, recent: [] };
+}
+
+function renderDash() {
+  var el = document.getElementById('dash');
+  if (!el) return;
+  if (!data) {
+    el.innerHTML = '<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">Connect your intervals.icu account to analyze training and build your plans.</p><button class="btn" onclick="navTo(\'settings\')">Setup Credentials</button> <button class="btn alt" onclick="demoData()">Use Demo</button></div>';
+    return;
+  }
+  el.innerHTML = '<div class="card"><h2>Fitness Overview</h2><p>Connected Athlete: <b>' + esc(data.name) + '</b></p></div>';
+}
+
+function renderGoals() {
+  var el = document.getElementById('goalList');
+  if (!el) return;
+  el.innerHTML = goals.length ? goals.map(function(g){ return '<div class="goal"><h3>' + esc(g.name) + '</h3></div>'; }).join('') : '<div class="card muted">No goals set yet.</div>';
+}
+
+function renderPlanTab() {
+  var el = document.getElementById('ciAuto');
+  if (el) el.innerHTML = data ? 'Ready to build week plan.' : 'Connect Intervals.icu on the Settings tab.';
+}
+
+function renderAll() {
+  analyze();
+  renderDash();
+  renderGoals();
+  renderPlanTab();
+}
+
+// Dom Ready Initializer
+window.addEventListener('DOMContentLoaded', function() {
+  var b = document.getElementById('diag-banner');
+  if (b) {
+    b.innerHTML = '⚡ TriPulse Engine: Online &amp; Ready';
+    b.style.background = '#065f46';
+    b.style.color = '#a7f3d0';
+    b.style.borderBottomColor = '#059669';
+  }
+
+  if (fbProj) {
+    document.getElementById('fb_proj').value = fbProj;
+    document.getElementById('fb_key').value = fbApiKey;
+    cloudStatus(true);
+  }
+  if (cfg.id) {
+    document.getElementById('s_id').value = cfg.id;
+    document.getElementById('s_key').value = cfg.key;
+  }
+
+  renderAll();
+  if (cfg.id && cfg.key && !data) sync();
+});
+</script>
+</body>
+</html>
