@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>TriPulse – Triathlon Training Planner</title>
+<!-- Firebase App + Auth + Firestore via official CDN -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
 <style>
 :root{--bg:#0b1020;--card:#141b30;--card2:#1b2440;--line:#27325a;--tx:#e8ecff;--mut:#8b97c4;--acc:#22d3ee;--acc2:#8b5cf6;--swim:#38bdf8;--bike:#f59e0b;--run:#34d399;--oth:#a78bfa;--bad:#fb7185;--ok:#34d399}
 *{box-sizing:border-box}
@@ -56,15 +61,37 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);border-colo
 @media(max-width:860px){.days{grid-template-columns:1fr}.day{min-height:0}}
 .note{background:#8b5cf61a;border:1px solid #8b5cf655;border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:14px}
 .cloud-pill{font-size:11px;background:#22d3ee14;border:1px solid #22d3ee44;color:var(--acc);padding:4px 10px;border-radius:14px;display:inline-flex;align-items:center;gap:5px;font-weight:600;cursor:pointer}
+
+/* Locked view overlay */
+#lockOverlay{display:none;position:fixed;inset:0;background:#0b1020f5;backdrop-filter:blur(12px);z-index:9999;align-items:center;justify-content:center;padding:20px}
+#lockOverlay.active{display:flex}
+.lock-box{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px;max-width:440px;width:100%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.7)}
+.user-pill{display:inline-flex;align-items:center;gap:6px;background:#1b2440;border:1px solid var(--line);padding:4px 10px;border-radius:20px;font-size:12px;color:var(--tx)}
 </style>
 </head>
 <body>
+
+<!-- Authentication Gatekeeper Overlay -->
+<div id="lockOverlay">
+  <div class="lock-box">
+    <div style="font-size:42px;margin-bottom:10px">🔒</div>
+    <h2 style="margin:0 0 8px">Owner Access Required</h2>
+    <p class="small muted" style="margin-bottom:20px">TriPulse is locked to authorized athlete access only.</p>
+    <button class="btn" style="width:100%;margin-bottom:12px" onclick="loginWithGoogle()">Sign in with Google</button>
+    <p id="lockMsg" class="small" style="color:var(--bad);margin:0"></p>
+  </div>
+</div>
+
 <header>
   <div class="brand">
     <svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#22d3ee"/><path d="M6 34 H19 L25 14 L34 50 L40 28 L44 34 H58" fill="none" stroke="#04101f" stroke-width="5" stroke-linecap="round"/></svg>
     <div><h1>TriPulse</h1><small>Swim · Bike · Run</small></div>
   </div>
   <div class="sp"></div>
+  <div id="authPill" class="user-pill" style="display:none">
+    <span id="authUserEmail"></span>
+    <button class="btn sm alt" style="padding:2px 8px;font-size:11px" onclick="logoutGoogle()">Logout</button>
+  </div>
   <div id="cloudStatus" class="cloud-pill" onclick="switchTab('settings')">☁ Connect Cloud</div>
   <div id="status"><i></i><span>Not connected</span></div>
 </header>
@@ -74,6 +101,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);border-colo
   <button id="nav-plan" onclick="switchTab('plan')">Check-in</button>
   <button id="nav-settings" onclick="switchTab('settings')">⚙ Settings &amp; Cloud</button>
 </nav>
+
 <main>
   <!-- 1. DASHBOARD -->
   <section class="tab on" id="tab-dash">
@@ -112,13 +140,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);border-colo
   <!-- 4. SETTINGS & CLOUD -->
   <section class="tab" id="tab-settings">
     <div class="card">
-      <h2>🔥 Firebase Cloud Storage (Direct REST)</h2>
-      <p class="small muted">Enter your Firebase project ID to automatically save goals, check-ins, and logs to Firestore.</p>
+      <h2>🔥 Firebase Cloud Storage (Owner Synchronized)</h2>
+      <p class="small muted">Firestore security rules verify your account token on all reads and writes.</p>
       <div class="form">
         <div><label>Project ID</label><input id="fb_proj" placeholder="e.g. your-project-id"></div>
+        <div><label>Web API Key</label><input id="fb_apikey" placeholder="AIzaSy..."></div>
       </div>
       <div class="row">
-        <button class="btn" onclick="saveFirebase()">Save &amp; Connect Cloud</button>
+        <button class="btn" onclick="saveFirebaseCredentials()">Save &amp; Connect Cloud</button>
         <span id="fb_msg" class="small"></span>
       </div>
     </div>
@@ -138,128 +167,209 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);border-colo
 </main>
 
 <script>
-// Fail-safe tab router: Independent of all other application state
+// Only this email is allowed read/write permissions
+const AUTHORIZED_EMAIL = "greenstonescott@gmail.com";
+
+let db = null;
+let auth = null;
+let currentUser = null;
+
+// Routing
 function switchTab(id) {
-  var tabs = ['dash', 'goals', 'plan', 'settings'];
-  for (var i = 0; i < tabs.length; i++) {
-    var name = tabs[i];
-    var tab = document.getElementById('tab-' + name);
-    var nav = document.getElementById('nav-' + name);
-    if (tab) tab.className = (name === id) ? 'tab on' : 'tab';
-    if (nav) nav.className = (name === id) ? 'on' : '';
-  }
+  ['dash', 'goals', 'plan', 'settings'].forEach(t => {
+    const tab = document.getElementById('tab-' + t);
+    const nav = document.getElementById('nav-' + t);
+    if (tab) tab.className = (t === id) ? 'tab on' : 'tab';
+    if (nav) nav.className = (t === id) ? 'on' : '';
+  });
 }
 
-// Resilient JSON Store: Catches parsing errors and defaults cleanly
-var store = {
-  get: function(k, d) {
-    try {
-      var v = localStorage.getItem(k);
-      return v ? JSON.parse(v) : d;
-    } catch(e) {
-      return d;
-    }
+// Storage wrapper
+const store = {
+  get(k, d) {
+    try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; }
   },
-  set: function(k, v) {
-    try {
-      localStorage.setItem(k, JSON.stringify(v));
-    } catch(e) {}
-    cloudSync(k, v);
+  set(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){}
+    syncToFirestore(k, v);
   }
 };
 
-// Cloud REST Synchronizer
-var fbProj = localStorage.getItem('tp_fb_proj') || '';
-var fbUid = localStorage.getItem('tp_fb_uid') || ('user_' + Math.random().toString(36).substring(2, 9));
-localStorage.setItem('tp_fb_uid', fbUid);
+let fbProj = localStorage.getItem('tp_fb_proj') || '';
+let fbApiKey = localStorage.getItem('tp_fb_apikey') || '';
+let cfg = store.get('tp_cfg', { id: 'i156864', key: '56ikb79lowqsehktofpy83d8a' });
+let goals = store.get('tp_goals', []);
+let data = store.get('tp_data', null);
 
 function updateCloudStatus(ok, msg) {
-  var el = document.getElementById('cloudStatus');
+  const el = document.getElementById('cloudStatus');
   if (!el) return;
   el.innerHTML = ok ? '☁ Cloud Synced' : ('☁ ' + (msg || 'Offline'));
   el.style.borderColor = ok ? 'var(--ok)' : 'var(--bad)';
   el.style.color = ok ? 'var(--ok)' : 'var(--bad)';
 }
 
-function cloudSync(k, v) {
-  if (!fbProj) return;
+// Firebase Initialization
+function initFirebaseApp() {
+  if (!fbProj || !fbApiKey) {
+    updateCloudStatus(false, 'No Config');
+    return;
+  }
   try {
-    var url = 'https://firestore.googleapis.com/v1/projects/' + fbProj + '/databases/(default)/documents/tripulse_users/' + fbUid;
-    fetch(url + '?updateMask.fieldPaths=' + k, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: { [k]: { stringValue: JSON.stringify(v) } } })
-    }).then(function(r){ updateCloudStatus(r.ok); }).catch(function(){ updateCloudStatus(false, 'Err'); });
-  } catch(e) {}
-}
-
-function saveFirebase() {
-  var p = document.getElementById('fb_proj').value.trim();
-  var msg = document.getElementById('fb_msg');
-  if (!p) { msg.textContent = 'Project ID is required.'; return; }
-  fbProj = p;
-  localStorage.setItem('tp_fb_proj', fbProj);
-  msg.textContent = 'Connecting…';
-  var url = 'https://firestore.googleapis.com/v1/projects/' + fbProj + '/databases/(default)/documents/tripulse_users/' + fbUid;
-  fetch(url).then(function(r){
-    if (r.ok || r.status === 404) {
-      msg.textContent = 'Connected & Synced!';
-      updateCloudStatus(true);
-    } else {
-      msg.textContent = 'HTTP ' + r.status + ': Check rules.';
-      updateCloudStatus(false, 'Rule 403');
+    if (!firebase.apps.length) {
+      firebase.initializeApp({
+        projectId: fbProj,
+        apiKey: fbApiKey,
+        authDomain: `${fbProj}.firebaseapp.com`
+      });
     }
-  }).catch(function(e){
-    msg.textContent = 'Network error: ' + e.message;
-  });
+    auth = firebase.auth();
+    db = firebase.firestore();
+
+    auth.onAuthStateChanged(user => {
+      const lock = document.getElementById('lockOverlay');
+      const pill = document.getElementById('authPill');
+      const lockMsg = document.getElementById('lockMsg');
+
+      if (user) {
+        if (user.email.toLowerCase() === AUTHORIZED_EMAIL.toLowerCase()) {
+          currentUser = user;
+          lock.classList.remove('active');
+          pill.style.display = 'inline-flex';
+          document.getElementById('authUserEmail').textContent = user.email;
+          updateCloudStatus(true);
+          loadFromFirestore();
+        } else {
+          // Unauthorized visitor: block access
+          auth.signOut();
+          currentUser = null;
+          lock.classList.add('active');
+          lockMsg.textContent = `Access Denied: ${user.email} is not authorized.`;
+          pill.style.display = 'none';
+        }
+      } else {
+        currentUser = null;
+        lock.classList.add('active');
+        pill.style.display = 'none';
+        updateCloudStatus(false, 'Signed Out');
+      }
+    });
+  } catch(e) {
+    console.error('Firebase setup failed:', e);
+  }
 }
 
-// App State
-var cfg = store.get('tp_cfg', { id: 'i156864', key: '56ikb79lowqsehktofpy83d8a' });
-var goals = store.get('tp_goals', []);
-var data = store.get('tp_data', null);
+async function loginWithGoogle() {
+  if (!auth) {
+    alert('Please enter your Firebase Project ID and Web API Key on the Settings tab first.');
+    document.getElementById('lockOverlay').classList.remove('active');
+    switchTab('settings');
+    return;
+  }
+  const provider = new firebase.auth.GoogleAuthProvider();
+  try {
+    await auth.signInWithPopup(provider);
+  } catch(e) {
+    document.getElementById('lockMsg').textContent = e.message;
+  }
+}
 
+function logoutGoogle() {
+  if (auth) auth.signOut();
+}
+
+async function syncToFirestore(k, v) {
+  if (!db || !currentUser) return;
+  try {
+    await db.collection('tripulse_users').doc(currentUser.uid).set({
+      [k]: v,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    updateCloudStatus(true);
+  } catch(e) {
+    console.warn('Firestore sync failed:', e);
+    updateCloudStatus(false, 'Denied');
+  }
+}
+
+async function loadFromFirestore() {
+  if (!db || !currentUser) return;
+  try {
+    const doc = await db.collection('tripulse_users').doc(currentUser.uid).get();
+    if (doc.exists) {
+      const d = doc.data();
+      if (d.tp_goals) { goals = d.tp_goals; localStorage.setItem('tp_goals', JSON.stringify(goals)); }
+      if (d.tp_cfg) { cfg = d.tp_cfg; localStorage.setItem('tp_cfg', JSON.stringify(cfg)); }
+      if (d.tp_data) { data = d.tp_data; localStorage.setItem('tp_data', JSON.stringify(data)); }
+      renderAll();
+    }
+  } catch(e) {
+    console.warn('Could not read from Firestore:', e);
+  }
+}
+
+function saveFirebaseCredentials() {
+  const p = document.getElementById('fb_proj').value.trim();
+  const k = document.getElementById('fb_apikey').value.trim();
+  const msg = document.getElementById('fb_msg');
+  if (!p || !k) {
+    msg.textContent = 'Project ID and Web API Key required.';
+    return;
+  }
+  fbProj = p;
+  fbApiKey = k;
+  localStorage.setItem('tp_fb_proj', fbProj);
+  localStorage.setItem('tp_fb_apikey', fbApiKey);
+  msg.textContent = 'Saved! Initializing Google Auth…';
+  initFirebaseApp();
+  loginWithGoogle();
+}
+
+// App Logic
 function renderDash() {
-  var el = document.getElementById('dash-content');
+  const el = document.getElementById('dash-content');
   if (!el) return;
   if (!data) {
     el.innerHTML = '<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">No data loaded yet. Connect Intervals.icu on the Settings tab or load sample data.</p><button class="btn" onclick="syncIntervals()">Sync Intervals.icu</button> <button class="btn alt" onclick="loadDemoData()">Load Sample Data</button></div>';
     return;
   }
-  var k = function(l, v, s){ return '<div class="kpi"><span>' + l + '</span><b>' + v + '</b><em class="muted">' + (s||'') + '</em></div>'; };
-  el.innerHTML = '<div class="grid kpis" style="margin-bottom:18px">' +
-    k('Avg weekly hours', '6.2h', 'last 4 weeks') +
-    k('Avg weekly load', '410', 'training load') +
-    k('Fitness (CTL)', '56', 'training fitness') +
-    k('Fatigue (ATL)', '62', 'current fatigue') +
-    k('Cycling FTP', '198 W', 'threshold power') +
-    k('Running Pace', '7:34 /mi', 'threshold pace') +
-    '</div>' +
-    '<div class="card"><h2>Weekly Training Volume</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th></tr>' +
-    '<tr><td>🏊 SWIM</td><td>2</td><td>1.5h</td><td>3,200 yd</td></tr>' +
-    '<tr><td>🚴 BIKE</td><td>3</td><td>3.2h</td><td>54.0 mi</td></tr>' +
-    '<tr><td>🏃 RUN</td><td>3</td><td>1.5h</td><td>11.2 mi</td></tr>' +
-    '</table></div>';
+  const k = (l, v, s) => `<div class="kpi"><span>${l}</span><b>${v}</b><em class="muted">${s||''}</em></div>`;
+  el.innerHTML = `<div class="grid kpis" style="margin-bottom:18px">
+    ${k('Avg weekly hours', '6.2h', 'last 4 weeks')}
+    ${k('Avg weekly load', '410', 'training load')}
+    ${k('Fitness (CTL)', '56', 'training fitness')}
+    ${k('Fatigue (ATL)', '62', 'current fatigue')}
+    ${k('Cycling FTP', '198 W', 'threshold power')}
+    ${k('Running Pace', '7:34 /mi', 'threshold pace')}
+  </div>
+  <div class="card"><h2>Weekly Training Volume</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th></tr>
+    <tr><td>🏊 SWIM</td><td>2</td><td>1.5h</td><td>3,200 yd</td></tr>
+    <tr><td>🚴 BIKE</td><td>3</td><td>3.2h</td><td>54.0 mi</td></tr>
+    <tr><td>🏃 RUN</td><td>3</td><td>1.5h</td><td>11.2 mi</td></tr>
+  </table></div>`;
 }
 
 function renderGoals() {
-  var el = document.getElementById('goalList');
+  const el = document.getElementById('goalList');
   if (!el) return;
   if (!goals.length) {
     el.innerHTML = '<div class="card muted">No goals set yet. Add one above.</div>';
     return;
   }
-  el.innerHTML = goals.map(function(g, i){
-    return '<div class="goal"><h3>' + g.name + ' <span class="tag">' + g.type.toUpperCase() + '</span><span class="sp"></span><button class="btn sm alt" onclick="delGoal(' + i + ')">Delete</button></h3><p class="small muted">' + (g.date || 'No date set') + '</p></div>';
-  }).join('');
+  el.innerHTML = goals.map((g, i) => `
+    <div class="goal">
+      <h3>${g.name} <span class="tag">${g.type.toUpperCase()}</span><span class="sp"></span><button class="btn sm alt" onclick="delGoal(${i})">Delete</button></h3>
+      <p class="small muted">${g.date || 'No date set'}</p>
+    </div>
+  `).join('');
 }
 
 function addGoal() {
-  var name = document.getElementById('g_name').value.trim();
-  var date = document.getElementById('g_date').value;
-  var type = document.getElementById('g_type').value;
+  const name = document.getElementById('g_name').value.trim();
+  const date = document.getElementById('g_date').value;
+  const type = document.getElementById('g_type').value;
   if (!name) return;
-  goals.push({ name: name, date: date, type: type });
+  goals.push({ name, date, type });
   store.set('tp_goals', goals);
   document.getElementById('g_name').value = '';
   renderGoals();
@@ -272,52 +382,51 @@ function delGoal(i) {
 }
 
 function buildWeek() {
-  var w = document.getElementById('c_week').value || 'Upcoming Week';
-  var out = document.getElementById('weekOut');
-  out.innerHTML = '<div class="card"><h2>Plan for ' + w + '</h2><div class="week"><div class="days">' +
-    '<div class="day"><h4>Mon</h4><span class="muted">Rest Day</span></div>' +
-    '<div class="day"><h4>Tue</h4><div class="chip swim"><b>🏊 25y Pool</b><p>CSS intervals</p></div><div class="chip run"><b>🏃 40m Run</b><p>Aerobic</p></div></div>' +
-    '<div class="day"><h4>Wed</h4><div class="chip bike"><b>🚴 60m Bike</b><p>Sweet spot</p></div><div class="chip"><b>🏋️ 30m Core</b></div></div>' +
-    '<div class="day"><h4>Thu</h4><div class="chip run"><b>🏃 45m Run</b><p>Threshold</p></div><div class="chip"><b>🏋️ 30m Strength</b></div></div>' +
-    '<div class="day"><h4>Fri</h4><div class="chip swim"><b>🏊 25y Pool</b><p>Endurance pull</p></div><div class="chip bike"><b>🚴 40m Spin</b></div></div>' +
-    '<div class="day"><h4>Sat</h4><div class="chip bike"><b>🚴 Long Ride</b><p>2h30–3h00 Z2</p></div></div>' +
-    '<div class="day"><h4>Sun</h4><div class="chip run"><b>🏃 Long Run</b><p>1h30–1h45 Z2</p></div></div>' +
-    '</div></div></div>';
+  const w = document.getElementById('c_week').value || 'Upcoming Week';
+  const out = document.getElementById('weekOut');
+  out.innerHTML = `<div class="card"><h2>Plan for ${w}</h2><div class="week"><div class="days">
+    <div class="day"><h4>Mon</h4><span class="muted">Rest Day</span></div>
+    <div class="day"><h4>Tue</h4><div class="chip swim"><b>🏊 25y Pool</b><p>CSS intervals</p></div><div class="chip run"><b>🏃 40m Run</b><p>Aerobic</p></div></div>
+    <div class="day"><h4>Wed</h4><div class="chip bike"><b>🚴 60m Bike</b><p>Sweet spot</p></div><div class="chip"><b>🏋️️ 30m Core</b></div></div>
+    <div class="day"><h4>Thu</h4><div class="chip run"><b>🏃 45m Run</b><p>Threshold</p></div><div class="chip"><b>🏋️ 30m Strength</b></div></div>
+    <div class="day"><h4>Fri</h4><div class="chip swim"><b>🏊 25y Pool</b><p>Endurance pull</p></div><div class="chip bike"><b>🚴 40m Spin</b></div></div>
+    <div class="day"><h4>Sat</h4><div class="chip bike"><b>🚴 Long Ride</b><p>2h30–3h00 Z2</p></div></div>
+    <div class="day"><h4>Sun</h4><div class="chip run"><b>🏃 Long Run</b><p>1h30–1h45 Z2</p></div></div>
+  </div></div></div>`;
 }
 
 function loadDemoData() {
   data = { name: 'Scott Greenstone', loaded: true };
   store.set('tp_data', data);
-  var st = document.getElementById('status');
+  const st = document.getElementById('status');
   if (st) { st.className = 'ok'; st.querySelector('span').textContent = 'Connected · ' + data.name; }
   renderDash();
 }
 
 function syncIntervals() {
-  var id = document.getElementById('s_id').value.trim();
-  var key = document.getElementById('s_key').value.trim();
-  var sm = document.getElementById('s_msg');
-  if (!id || !key) { if(sm) sm.textContent = 'Athlete ID & API Key required'; return; }
-  cfg = { id: id, key: key };
+  const id = document.getElementById('s_id').value.trim();
+  const key = document.getElementById('s_key').value.trim();
+  const sm = document.getElementById('s_msg');
+  if (!id || !key) return;
+  cfg = { id, key };
   store.set('tp_cfg', cfg);
-  if(sm) sm.textContent = 'Syncing…';
-  
-  fetch('https://intervals.icu/api/v1/athlete/' + cfg.id, {
+  if (sm) sm.textContent = 'Syncing…';
+
+  fetch(`https://intervals.icu/api/v1/athlete/${cfg.id}`, {
     headers: { 'Authorization': 'Basic ' + btoa('API_KEY:' + cfg.key) }
-  }).then(function(r){
-    if(!r.ok) throw new Error('HTTP ' + r.status);
+  }).then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
-  }).then(function(ath){
+  }).then(ath => {
     data = { name: ath.name || cfg.id, loaded: true };
     store.set('tp_data', data);
-    var st = document.getElementById('status');
+    const st = document.getElementById('status');
     if (st) { st.className = 'ok'; st.querySelector('span').textContent = 'Connected · ' + data.name; }
-    if(sm) sm.textContent = 'Connected!';
+    if (sm) sm.textContent = 'Connected!';
     renderDash();
     switchTab('dash');
-  }).catch(function(e){
-    // Fallback: If blocked by browser cross-origin policy, load local training model without crashing
-    if(sm) sm.textContent = 'Intervals synced (offline profile loaded).';
+  }).catch(() => {
+    if (sm) sm.textContent = 'Offline fallback active.';
     loadDemoData();
     switchTab('dash');
   });
@@ -327,23 +436,23 @@ function saveIntervals() {
   syncIntervals();
 }
 
-// Initial Boot Sequence
+function renderAll() {
+  renderDash();
+  renderGoals();
+}
+
 window.onload = function() {
-  if (fbProj) {
-    document.getElementById('fb_proj').value = fbProj;
-    updateCloudStatus(true);
-  }
+  if (fbProj) document.getElementById('fb_proj').value = fbProj;
+  if (fbApiKey) document.getElementById('fb_apikey').value = fbApiKey;
   if (cfg.id) document.getElementById('s_id').value = cfg.id;
   if (cfg.key) document.getElementById('s_key').value = cfg.key;
 
-  // Set Monday date
-  var now = new Date();
-  var mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const now = new Date();
+  const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
   document.getElementById('c_week').value = mon.toISOString().slice(0, 10);
 
-  renderDash();
-  renderGoals();
-  if (cfg.id && cfg.key && !data) syncIntervals();
+  renderAll();
+  initFirebaseApp();
 };
 </script>
 </body>
