@@ -481,7 +481,7 @@ $('#addGoal').onclick=()=>{
   const g={id:Date.now(),type,name,start,end};
   if(type==='race'){g.dist=$('#g_dist').value;g.prio=$('#g_prio').value}
   else{g.metric=$('#g_metric').value;g.target=parseTarget(g.metric,$('#g_target').value);if(g.metric==='runpace')g.paceUnit='mi';if(!g.target){err.textContent='Enter a target value.';return}g.baseline=curMetric(g.metric)}
-  goals.push(g);store.set('tp_goals',goals);err.textContent='';$('#g_name').value='';renderGoals();renderPlanNote();
+  goals.push(g);store.set('tp_goals',goals);err.textContent='';$('#g_name').value='';renderGoals();renderPlanNote();if (typeof cloudPush === 'function') cloudPush();
 };
 function renderGoals(){
   const el=$('#goalList');if(!goals.length){el.innerHTML='<div class="card muted">No goals yet. Add a race or fitness goal above.</div>';return}
@@ -493,7 +493,7 @@ function renderGoals(){
       body=`<div class="small muted">${esc(fmtD(g.start))} → ${esc(fmtD(g.end))}</div><div class="small">${METRIC[g.metric]}: <b>${cur!=null?fmtM(g.metric,cur):'—'}</b> / ${fmtM(g.metric,g.target)} (${pct.toFixed(0)}%) · time elapsed ${tp.toFixed(0)}% ${cur!=null&&pct>=tp-5?'<span style="color:var(--ok)">✔ on track</span>':'<span style="color:var(--bad)">behind pace</span>'}</div><div class="bar"><div style="width:${pct}%"></div></div><div class="small" style="margin-top:6px">🎯 Training focus: ${focusOf(g).length?focusOf(g).map(x=>FLABEL[x]).join(', '):'<span class="muted">no keyword match – general training</span>'}</div>`}
     return `<div class="goal"><h3>${g.type==='race'?'<span class="tag r">RACE '+g.prio+'</span>'+(DIST[g.dist]?DIST[g.dist].n:esc(g.dist)):'<span class="tag">FITNESS</span>'} ${esc(g.name)}<span class="sp"></span><button class="btn alt sm" onclick="delGoal(${g.id})">Delete</button></h3>${body}</div>`}).join('');
 }
-function delGoal(id){goals=goals.filter(g=>g.id!==id);store.set('tp_goals',goals);renderGoals();renderPlanNote()}
+function delGoal(id){goals=goals.filter(g=>g.id!==id);store.set('tp_goals',goals);renderGoals();renderPlanNote();if (typeof cloudPush === 'function') cloudPush();}
 
 /* ---------- plan ---------- */
 const FOCI=[
