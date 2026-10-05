@@ -905,9 +905,17 @@ function csvWeek(){
 /* ---------- cloud sync: Firebase (Auth + Firestore) ---------- */
 // To bake your Firebase config into this file (so every computer just signs in), paste the object here, e.g.
 // const FIREBASE_CONFIG={apiKey:"...",authDomain:"your-app.firebaseapp.com",projectId:"your-app",appId:"..."};
-const FIREBASE_CONFIG=null;
+const FIREBASE_CONFIG={
+  apiKey: "AIzaSyCwBrPoR8tOPmsP3RmXHFCsDXiOii9F8pQ",
+  authDomain: "tripulsetraining.firebaseapp.com",
+  projectId: "tripulsetraining",
+  storageBucket: "tripulsetraining.firebasestorage.app",
+  messagingSenderId: "1057595772675",
+  appId: "1:1057595772675:web:5409356961362d44022336"
+}
+;
 // Only this Google account may use the cloud-synced app (set it to your own address, e.g. 'you@gmail.com'):
-const ALLOWED_EMAIL='';
+const ALLOWED_EMAIL='greenstone.scott@gmail.com';
 let lockMsg='';
 const isOwner=u=>!!u&&!!ALLOWED_EMAIL&&u.emailVerified&&String(u.email||'').toLowerCase()===ALLOWED_EMAIL.toLowerCase();
 function lockUI(){
