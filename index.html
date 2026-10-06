@@ -182,6 +182,23 @@ details.card>summary{cursor:pointer;font-weight:700}
   </div>
 </div>
 
+<dialog id="dlgCourse">
+  <h2 style="margin-top:0">🏔 Course profile – <span id="cr_name"></span></h2>
+  <p class="small muted">Add the race's elevation so the predicted finish reflects the course. Upload a GPX file (best – uses the full profile) or just enter the total elevation gain.</p>
+  <div id="cr_bike">
+    <label>Bike course GPX</label><input type="file" id="cr_bike_f" accept=".gpx" onchange="crFile('bike',this)">
+    <label style="margin-top:8px">or total bike elevation gain (ft)</label><input type="number" id="cr_bike_g" min="0" placeholder="e.g. 2800">
+    <div class="small muted" id="cr_bike_s" style="margin:4px 0 0"></div><button class="btn alt sm" style="margin-top:6px" onclick="crClear('bike')">Remove bike course</button>
+  </div>
+  <div id="cr_run" style="margin-top:14px">
+    <label>Run course GPX</label><input type="file" id="cr_run_f" accept=".gpx" onchange="crFile('run',this)">
+    <label style="margin-top:8px">or total run elevation gain (ft)</label><input type="number" id="cr_run_g" min="0" placeholder="e.g. 600">
+    <div class="small muted" id="cr_run_s" style="margin:4px 0 0"></div><button class="btn alt sm" style="margin-top:6px" onclick="crClear('run')">Remove run course</button>
+  </div>
+  <p class="small" id="cr_msg" style="color:var(--bad)"></p>
+  <div class="row"><button class="btn" onclick="crSave()">Save course</button><button class="btn alt" onclick="$('#dlgCourse').close()">Cancel</button></div>
+</dialog>
+
 <dialog id="dlg2">
   <h2 style="margin-top:0">☁ Cloud sync (Firebase)</h2>
   <p class="small muted">Saves your goals, check-ins and roadmap to your own private Firebase database so any computer you sign in on has the same data.</p>
@@ -448,6 +465,98 @@ function readyBlock(){
    <div>${rows}${R.missing?`<p class="small muted" style="margin:0">Based on ${R.comps.length} of 4 markers – the rest weren't available in your intervals.icu data.</p>`:''}</div></div>
    <p class="small muted" style="margin:10px 0 0">Score combines HRV (30%), sleep (25%), form (25%) and resting HR (20%) using the latest 3 days against your own 4-week baseline. It's a guide for today's effort, not a medical measure.</p></div>`;
 }
+/* ---------- course-aware race predictions (elevation) ---------- */
+const FT=3.28084,sgnT=sec=>(sec>=0?'+':'−')+fmtT(Math.abs(sec));
+function parseGPX(t){
+  const x=new DOMParser().parseFromString(t,'application/xml');
+  let pts=[...x.getElementsByTagName('trkpt')];if(pts.length<2)pts=[...x.getElementsByTagName('rtept')];
+  if(pts.length<2)throw new Error('No track points found in that GPX file');
+  const R=6371000,rad=Math.PI/180;let d=0;const P=[];
+  pts.forEach((p,i)=>{
+    const la=+p.getAttribute('lat'),lo=+p.getAttribute('lon'),e=p.getElementsByTagName('ele')[0],el=e?+e.textContent:NaN;
+    if(i>0){const a=pts[i-1],la0=+a.getAttribute('lat'),lo0=+a.getAttribute('lon'),dl=(la-la0)*rad,dn=(lo-lo0)*rad,h=Math.sin(dl/2)**2+Math.cos(la0*rad)*Math.cos(la*rad)*Math.sin(dn/2)**2;d+=2*R*Math.asin(Math.sqrt(h))}
+    P.push([d,el]);
+  });
+  if(P.some(q=>isNaN(q[1])))throw new Error('This GPX file has no elevation data');
+  const step=200,n=Math.max(2,Math.floor(d/step)),el=[];let j=0;
+  for(let k=0;k<=n;k++){const t=k*step;while(j<P.length-2&&P[j+1][0]<t)j++;const a=P[j],b=P[j+1],f=b[0]>a[0]?Math.min(1,Math.max(0,(t-a[0])/(b[0]-a[0]))):0;el.push(a[1]+(b[1]-a[1])*f)}
+  const sm=el.map((v,i)=>{const a=el[Math.max(0,i-1)],c=el[Math.min(n,i+1)];return(a+v+c)/3});   // light smoothing to remove GPS noise
+  let gain=0,loss=0;for(let i=0;i<n;i++){const df=sm[i+1]-sm[i];if(df>0)gain+=df;else loss-=df}
+  return{distM:Math.round(d),step,elev:sm.map(v=>Math.round(v*10)/10),gainM:Math.round(gain),lossM:Math.round(loss),gpx:true};
+}
+function gradesOf(c,distKm){ // per-step gradients from a GPX profile, or a synthetic rolling profile from total gain
+  if(c.elev){const g=[];for(let i=0;i<c.elev.length-1;i++)g.push((c.elev[i+1]-c.elev[i])/c.step);return{g,step:c.step,scale:c.distM/((c.elev.length-1)*c.step)}}
+  const D=distKm*1000,step=200,n=Math.max(4,Math.round(D/step)),g=[];
+  for(let i=0;i<n;i++){const ph=Math.floor(i/10)%4;g.push(ph===0?1:ph===2?-1:0)}   // 2 km blocks: up, flat, down, flat
+  const real=g.reduce((a,x)=>a+(x>0?x*(D/n):0),0)||1,up=c.gainM/real;
+  return{g:g.map(x=>x*up),step:D/n,scale:1};
+}
+function minetti(g){g=Math.max(-.3,Math.min(.3,g));return 155.4*g**5-30.4*g**4-43.3*g**3+46.3*g**2+19.5*g+3.6}   // energy cost of running (J/kg/m)
+const runGradeF=g=>{const f=minetti(g)/3.6;return g<0?1-0.5*(1-f):f};      // only half the downhill benefit (braking, quad fatigue)
+function runCourse(distKm,flatSecPerKm,c){
+  const {g,step,scale}=gradesOf(c,distKm);let T=0;g.forEach(gr=>{T+=step/1000*flatSecPerKm*runGradeF(gr)});return T*scale;
+}
+function bikeCourse(P,massKg,distKm,c){
+  const {g,step,scale}=gradesOf(c,distKm),rho=1.2,cda=.32,crr=.004,eff=.975,G=9.81,VMAX=16.7;
+  const spd=(Pw,gr)=>{const sn=gr/Math.sqrt(1+gr*gr);let lo=0.3,hi=30;for(let i=0;i<50;i++){const v=(lo+hi)/2,f=.5*rho*cda*v**3+massKg*G*v*(crr+sn)-Pw*eff;if(f>0)hi=v;else lo=v}return lo};
+  const sim=k=>{let T=0,E=0;g.forEach(gr=>{let Pw=gr<-0.02?0:k*P,v=spd(Pw,gr);if(v>VMAX){v=VMAX;Pw=0}const t=step/v;T+=t;E+=Pw*t});return{T:T*scale,avg:E/T}};
+  let r=sim(1);
+  if(r.avg<P){let lo=1,hi=1.5;for(let i=0;i<30;i++){const k=(lo+hi)/2;if(sim(k).avg<P)lo=k;else hi=k}r=sim((lo+hi)/2)}   // ride harder uphill so average power (with coasting) matches the target
+  return r.T;
+}
+function predictRace(r){
+  if(!ST||!ST.thr)return null;
+  const T=ST.thr,mass=wLb*0.45359+9,co=r.course||{},ti={sprint:0,olympic:1,'70.3':2,ironman:3}[r.dist];
+  if(ti!==undefined){
+    const d=TRI[ti];if(!T.css||!T.ftp||!T.rp)return null;
+    const sw=d.sw/100*T.css*d.sf*1.03,P=T.ftp*d.pf;
+    const bkm=co.bike&&co.bike.distM?co.bike.distM/1000:d.bk,flatB=bkm/bikeKmh(P,mass)*3600,bk=co.bike?bikeCourse(P,mass,bkm,co.bike):flatB;
+    const rkm=co.run&&co.run.distM?co.run.distM/1000:d.rn,flatR=runSecs(rkm)*d.rf,rn=co.run?runCourse(rkm,runSecs(rkm)/rkm*d.rf,co.run):flatR;
+    const tot=sw+bk+rn+d.tr,adj=[];if(co.bike)adj.push(`bike ${sgnT(bk-flatB)}`);if(co.run)adj.push(`run ${sgnT(rn-flatR)}`);
+    return{t:fmtT(tot),adj:adj.length?'course effect vs flat: '+adj.join(', '):'',legs:`Swim ${fmtT(sw)} · Bike ${fmtT(bk)} · Run ${fmtT(rn)}`};
+  }
+  const km=(RUNS.find(x=>x[0]===({'5k':'5k','10k':'10k',half:'Half marathon',marathon:'Marathon','50k':'50k','100k':'100k'}[r.dist]))||[])[1];
+  if(!km||!T.rp)return null;
+  const rkm=co.run&&co.run.distM?co.run.distM/1000:km,flat=runSecs(rkm),tm=co.run?runCourse(rkm,flat/rkm,co.run):flat;
+  return{t:fmtT(tm),adj:co.run?`course effect vs flat: ${sgnT(tm-flat)}`:''};
+}
+function courseSummary(g){
+  const c=g.course;if(!c||(!c.bike&&!c.run))return 'No course profile – predictions assume a flat course';
+  const f=(l,x)=>x?`${l} ${Math.round(x.gainM*FT).toLocaleString()} ft gain${x.gpx?' (GPX)':''}`:'';
+  return '🏔 '+[f('bike',c.bike),f('run',c.run)].filter(Boolean).join(' · ');
+}
+let crId=null,crTmp={};
+function crLeg(leg){return crTmp[leg]}
+function crShow(){
+  const g=goals.find(x=>x.id===crId);if(!g)return;
+  const tri=DIST[g.dist]&&DIST[g.dist].type==='tri';
+  $('#cr_bike').classList.toggle('hide',!tri);
+  ['bike','run'].forEach(l=>{
+    const c=crTmp[l],gi=$('#cr_'+l+'_g'),st=$('#cr_'+l+'_s');
+    if(c&&c.gpx){st.textContent=`GPX loaded: ${(c.distM/1609.344).toFixed(1)} mi, +${Math.round(c.gainM*FT).toLocaleString()} ft / −${Math.round(c.lossM*FT).toLocaleString()} ft`;gi.value=''}
+    else{st.textContent='';gi.value=c&&c.gainM?Math.round(c.gainM*FT):''}
+  });
+}
+function openCourse(id){
+  const g=goals.find(x=>x.id===id);if(!g)return;crId=id;crTmp=JSON.parse(JSON.stringify(g.course||{}));
+  $('#cr_name').textContent=g.name;$('#cr_msg').textContent='';['bike','run'].forEach(l=>{$('#cr_'+l+'_f').value=''});crShow();$('#dlgCourse').showModal();
+}
+function crFile(leg,inp){
+  const f=inp.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=()=>{try{crTmp[leg]=parseGPX(String(rd.result));$('#cr_msg').textContent='';crShow()}catch(e){$('#cr_msg').textContent=e.message}};
+  rd.readAsText(f);
+}
+function crClear(leg){delete crTmp[leg];$('#cr_'+leg+'_f').value='';crShow()}
+function crSave(){
+  const g=goals.find(x=>x.id===crId);if(!g)return;const out={};
+  ['bike','run'].forEach(l=>{
+    const c=crTmp[l];
+    if(c&&c.gpx)out[l]=c;
+    else{const v=parseFloat($('#cr_'+l+'_g').value);if(v>0)out[l]={gainM:v/FT}}
+  });
+  if(out.bike||out.run)g.course=out;else delete g.course;
+  store.set('tp_goals',goals);$('#dlgCourse').close();renderGoals();renderDash();
+}
 /* ---------- race readiness (per upcoming race goal) ---------- */
 const RR={sprint:{ctl:35,h:5,lb:60,lr:40,p:'Sprint triathlon'},olympic:{ctl:50,h:7,lb:90,lr:60,p:'Olympic triathlon'},'70.3':{ctl:65,h:10,lb:150,lr:90,p:'70.3 triathlon'},ironman:{ctl:85,h:14,lb:210,lr:120,p:'140.6 triathlon'},
  '5k':{ctl:30,h:4,lr:45,p:'5k'},'10k':{ctl:38,h:5,lr:60,p:'10k'},half:{ctl:48,h:6,lr:90,p:'Half marathon'},marathon:{ctl:60,h:8,lr:135,p:'Marathon'},'50k':{ctl:65,h:9,lr:150,p:'50k'},'100k':{ctl:75,h:11,lr:150,p:'100k'}};
@@ -464,8 +573,8 @@ function raceReady(r){
   const tw2=comps.reduce((a,c)=>a+c.w,0),score=Math.round(comps.reduce((a,c)=>a+c.s*c.w,0)/tw2);
   const label=score>=85?'Race ready':score>=70?'On track':score>=50?'Building':'Behind';
   const gap=[...comps].sort((a,b)=>a.s-b.s)[0];
-  const pr=predRows(),pred=[...pr.tri,...pr.run].find(x=>x.n===t.p);
-  return{r,days,weeks,score,label,comps,gap,pred:pred&&pred.t!=='—'?pred.t:null};
+  const pr=predictRace(r);
+  return{r,days,weeks,score,label,comps,gap,pred:pr?pr.t:null,predAdj:pr?pr.adj:'',predLegs:pr?pr.legs||'':''};
 }
 function raceReadyBlock(){
   const rs=racesList().map(raceReady).filter(Boolean).slice(0,4);
@@ -477,7 +586,7 @@ function raceReadyBlock(){
     return `<div class="goal" style="display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center">
      <div style="text-align:center"><svg viewBox="0 0 150 92" style="width:150px"><path d="M15 80 A60 60 0 0 1 135 80" stroke="#27325a" stroke-width="13" fill="none" stroke-linecap="round"/><path d="M15 80 A60 60 0 0 1 135 80" stroke="${col}" stroke-width="13" fill="none" stroke-linecap="round" stroke-dasharray="${(x.score/100*arc).toFixed(1)} ${arc}"/><text x="75" y="72" text-anchor="middle" font-size="30" font-weight="800" fill="#e8ecff">${x.score}</text><text x="75" y="90" text-anchor="middle" font-size="11" font-weight="700" fill="${col}">${x.label.toUpperCase()}</text></svg></div>
      <div><h3 style="margin:0 0 4px"><span class="tag r">RACE ${esc(x.r.prio)}</span> ${esc(x.r.name)} <span class="muted small" style="font-weight:400">${DIST[x.r.dist].n} · ${esc(fmtD(x.r.start))} · ${x.days===0?'today':x.days+' day'+(x.days===1?'':'s')+' ('+x.weeks+' wk)'}</span></h3>
-     ${x.pred?`<div class="small">Predicted finish: <b>${x.pred}</b></div>`:''}
+     ${x.pred?`<div class="small">Predicted finish: <b>${x.pred}</b>${x.predAdj?` <span class="muted">· ${x.predAdj}</span>`:` <span class="muted">· flat course assumed – add the course profile on the Goals tab</span>`}${x.predLegs?`<div class="muted">${x.predLegs}</div>`:''}</div>`:''}
      ${x.comps.map(c=>`<div style="margin-top:6px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="small"><b>${c.n}</b></span><span class="small muted">${c.d}</span></div><div class="bar" style="margin-top:3px"><div style="width:${c.s.toFixed(0)}%;background:${rrCol(c.s)}"></div></div></div>`).join('')}
      <div class="small" style="margin-top:8px">${x.score>=85?'✔ You\'re in great shape for this race – protect it with a proper taper.':`Biggest gap: <b>${x.gap.n}</b>${wk?` · this week is a ${wk.phase} phase week in your roadmap.`:'.'}`}</div></div></div>`}).join('')+
    `<p class="small muted" style="margin:6px 0 0">Compares your current fitness (CTL) from intervals.icu, projected forward to race day at your recent ramp rate, with what each race distance typically needs. Within 2 weeks of a race it also checks freshness (form). A guide, not a guarantee.</p></div>`;
@@ -553,7 +662,7 @@ function renderGoals(){
   el.innerHTML=[...goals].sort((a,b)=>a.start<b.start?-1:1).map(g=>{
     const now=Date.now(),s=pd(g.start).getTime(),e=addDays(pd(g.end),1).getTime();
     let body;
-    if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div>`}
+    if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div><div class="small" style="margin-top:6px">${courseSummary(g)} <button class="btn alt sm" onclick="openCourse(${g.id})">${g.course?'Edit':'Add'} course profile</button></div>`}
     else{const cur=curMetric(g.metric),pct=cur!=null?Math.min(100,g.metric==='runpace'?g.target/cur*100:cur/g.target*100):0,tp=Math.min(100,Math.max(0,(now-s)/(e-s)*100));
       body=`<div class="small muted">${esc(fmtD(g.start))} → ${esc(fmtD(g.end))}</div><div class="small">${METRIC[g.metric]}: <b>${cur!=null?fmtM(g.metric,cur):'—'}</b> / ${fmtM(g.metric,g.target)} (${pct.toFixed(0)}%) · time elapsed ${tp.toFixed(0)}% ${cur!=null&&pct>=tp-5?'<span style="color:var(--ok)">✔ on track</span>':'<span style="color:var(--bad)">behind pace</span>'}</div><div class="bar"><div style="width:${pct}%"></div></div><div class="small" style="margin-top:6px">🎯 Training focus: ${focusOf(g).length?focusOf(g).map(x=>FLABEL[x]).join(', '):'<span class="muted">no keyword match – general training</span>'}</div>`}
     return `<div class="goal"><h3>${g.type==='race'?'<span class="tag r">RACE '+g.prio+'</span>'+(DIST[g.dist]?DIST[g.dist].n:esc(g.dist)):'<span class="tag">FITNESS</span>'} ${esc(g.name)}<span class="sp"></span><button class="btn alt sm" onclick="delGoal(${g.id})">Delete</button></h3>${body}</div>`}).join('');
