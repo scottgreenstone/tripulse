@@ -446,7 +446,43 @@ function readyBlock(){
    <div style="text-align:center"><svg viewBox="0 0 200 118" style="width:230px;max-width:100%"><path d="M20 100 A80 80 0 0 1 180 100" stroke="#27325a" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M20 100 A80 80 0 0 1 180 100" stroke="${R.lv.c}" stroke-width="16" fill="none" stroke-linecap="round" stroke-dasharray="${(R.score/100*arc).toFixed(1)} ${arc}"/><text x="100" y="90" text-anchor="middle" font-size="40" font-weight="800" fill="#e8ecff">${R.score}</text><text x="100" y="112" text-anchor="middle" font-size="13" fill="${R.lv.c}" font-weight="700">${R.lv.l.toUpperCase()}</text></svg>
     <div class="small" style="margin-top:4px">${R.lv.a}</div><div class="small muted" style="margin-top:6px">Suggested check-in energy: <b>${R.lv.e}/5</b></div></div>
    <div>${rows}${R.missing?`<p class="small muted" style="margin:0">Based on ${R.comps.length} of 4 markers – the rest weren't available in your intervals.icu data.</p>`:''}</div></div>
-   <p class="small muted" style="margin:10px 0 0">Score combines HRV (30%), sleep (25%), form (25%) and resting HR (20%) using the latest 3 days against your own 4-week baseline. It's a guide for today's effort, not a medical measure.</p></div>`;
+   <p class="small muted" style="margin:10px 0 0">Score combines HRV (30%), sleep (25%), form (25%) and resting HR (20%) using the latest 3 days against your own 4-week baseline.</p></div>`;
+}
+/* ---------- race readiness (per upcoming race goal) ---------- */
+const RR={sprint:{ctl:35,h:5,lb:60,lr:40,p:'Sprint triathlon'},olympic:{ctl:50,h:7,lb:90,lr:60,p:'Olympic triathlon'},'70.3':{ctl:65,h:10,lb:150,lr:90,p:'70.3 triathlon'},ironman:{ctl:85,h:14,lb:210,lr:120,p:'140.6 triathlon'},
+ '5k':{ctl:30,h:4,lr:45,p:'5k'},'10k':{ctl:38,h:5,lr:60,p:'10k'},half:{ctl:48,h:6,lr:90,p:'Half marathon'},marathon:{ctl:60,h:8,lr:135,p:'Marathon'},'50k':{ctl:65,h:9,lr:150,p:'50k'},'100k':{ctl:75,h:11,lr:150,p:'100k'}};
+function longest(sp){const t0=new Date(new Date().getFullYear(),new Date().getMonth(),new Date().getDate());let m=0;(data.acts||[]).forEach(a=>{const ago=Math.round((t0-pd(a.start_date_local))/864e5);if(ago>=0&&ago<=27&&sportOf(a.type)===sp)m=Math.max(m,(a.moving_time||0)/60)});return m}
+const rrCol=v=>v>=85?'#34d399':v>=70?'#86efac':v>=50?'#fbbf24':'#fb7185';
+function raceReady(r){
+  const t=RR[r.dist];if(!t)return null;
+  const now=new Date(),mid=new Date(now.getFullYear(),now.getMonth(),now.getDate()),rd=pd(r.start),days=Math.round((rd-mid)/864e5);
+  if(days<0)return null;
+  const weeks=Math.ceil(days/7),tri=DIST[r.dist].type==='tri',comps=[],cl=x=>Math.max(0,Math.min(100,x));
+  if(ST.ctl!=null){const tw=Math.max(0,Math.min(10,weeks-DIST[r.dist].taper)),ramp=Math.max(1,Math.min(4,ST.ramp!=null?ST.ramp:2.5)),proj=ST.ctl+tw*ramp;
+    comps.push({n:'Fitness (CTL)',w:tri?.35:.4,s:cl(proj/t.ctl*100),d:`now ${ST.ctl.toFixed(0)} → ~${proj.toFixed(0)} by race day (needs about ${t.ctl})`})}
+  comps.push({n:'Weekly volume',w:tri?.15:.2,s:cl(ST.avgH/t.h*100),d:`${ST.avgH.toFixed(1)} h/week avg vs about ${t.h} h typical`});
+  if(tri){const lb=longest('bike');comps.push({n:'Long ride',w:.25,s:cl(lb/t.lb*100),d:`longest in 4 weeks ${fmtDur(lb)} vs ${fmtDur(t.lb)} target`})}
+  const lr=longest('run');comps.push({n:'Long run',w:tri?.25:.4,s:cl(lr/t.lr*100),d:`longest in 4 weeks ${fmtDur(lr)} vs ${fmtDur(t.lr)} target`});
+  if(days<=14&&ST.form!=null){const f=ST.form,s2=f>=5?(f<=25?100:cl(100-(f-25)*3)):cl(100-(5-f)*5);comps.forEach(c=>c.w*=.8);comps.push({n:'Freshness (form)',w:.2,s:s2,d:`form ${f>0?'+':''}${f.toFixed(0)} (aim for about +5 to +20 on race day)`})}
+  const tw2=comps.reduce((a,c)=>a+c.w,0),score=Math.round(comps.reduce((a,c)=>a+c.s*c.w,0)/tw2);
+  const label=score>=85?'Race ready':score>=70?'On track':score>=50?'Building':'Behind';
+  const gap=[...comps].sort((a,b)=>a.s-b.s)[0];
+  const pr=predRows(),pred=[...pr.tri,...pr.run].find(x=>x.n===t.p);
+  return{r,days,weeks,score,label,comps,gap,pred:pred&&pred.t!=='—'?pred.t:null};
+}
+function raceReadyBlock(){
+  const rs=racesList().map(raceReady).filter(Boolean).slice(0,4);
+  if(!rs.length)return `<div class="card"><h2>🏁 Race readiness</h2><p class="muted small" style="margin:0">No upcoming races. Add a race on the Goals tab to see how ready you are.</p></div>`;
+  const arc=188.5;
+  return `<div class="card"><h2>🏁 Race readiness</h2>`+rs.map(x=>{
+    const col=rrCol(x.score),wk=road&&road.weeks.find(w=>w.start<=ymd(new Date())&&ymd(addDays(pd(w.start),6))>=ymd(new Date()));
+    return `<div class="goal" style="display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center">
+     <div style="text-align:center"><svg viewBox="0 0 150 92" style="width:150px"><path d="M15 80 A60 60 0 0 1 135 80" stroke="#27325a" stroke-width="13" fill="none" stroke-linecap="round"/><path d="M15 80 A60 60 0 0 1 135 80" stroke="${col}" stroke-width="13" fill="none" stroke-linecap="round" stroke-dasharray="${(x.score/100*arc).toFixed(1)} ${arc}"/><text x="75" y="72" text-anchor="middle" font-size="30" font-weight="800" fill="#e8ecff">${x.score}</text><text x="75" y="90" text-anchor="middle" font-size="11" font-weight="700" fill="${col}">${x.label.toUpperCase()}</text></svg></div>
+     <div><h3 style="margin:0 0 4px"><span class="tag r">RACE ${esc(x.r.prio)}</span> ${esc(x.r.name)} <span class="muted small" style="font-weight:400">${DIST[x.r.dist].n} · ${esc(fmtD(x.r.start))} · ${x.days===0?'today':x.days+' day'+(x.days===1?'':'s')+' ('+x.weeks+' wk)'}</span></h3>
+     ${x.pred?`<div class="small">Predicted finish: <b>${x.pred}</b></div>`:''}
+     ${x.comps.map(c=>`<div style="margin-top:6px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="small"><b>${c.n}</b></span><span class="small muted">${c.d}</span></div><div class="bar" style="margin-top:3px"><div style="width:${c.s.toFixed(0)}%;background:${rrCol(c.s)}"></div></div></div>`).join('')}
+     <div class="small" style="margin-top:8px">${x.score>=85?'✔ You\'re in great shape for this race – protect it with a proper taper.':`Biggest gap: <b>${x.gap.n}</b>${wk?` · this week is a ${wk.phase} phase week in your roadmap.`:'.'}`}</div></div></div>`}).join('')+
+   `<p class="small muted" style="margin:6px 0 0">Compares your current fitness (CTL), 4-week volume and longest ride/run with typical needs for each race distance, projecting fitness forward to race day. Within 2 weeks of a race it also checks freshness (form). A guide, not a guarantee.</p></div>`;
 }
 function renderDash(){
   const el=$('#dash');
@@ -466,6 +502,7 @@ function renderDash(){
     ${k('🚴 Cycling eFTP · 42d',ST.thr.ftp?Math.round(ST.thr.ftp)+' W':'—',ST.thr.ftp?ST.thr.ftpSrc:(data.curveErr&&data.curveErr.power?'power curve unavailable ('+data.curveErr.power+')':data.curveInfo&&data.curveInfo.power?'unreadable – '+data.curveInfo.power:'reconnect to load 42-day power curve'))}
   </div>
   ${readyBlock()}
+  ${raceReadyBlock()}
   ${trendBlock()}  ${predBlock()}
   <div class="grid two">
     <div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
