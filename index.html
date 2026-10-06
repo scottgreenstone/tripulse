@@ -421,6 +421,33 @@ function predBlock(){
    <tr><td colspan="3" class="small" style="color:var(--acc);font-weight:700">RUNNING</td></tr>${P.run.map(row).join('')}</table></div>
    <p class="small muted" style="margin-bottom:0">Estimates from your current fitness: run times use your 42-day critical speed (10k ≈ CS pace) with a fatigue curve for longer distances; the bike uses your eFTP at a typical race-day % on a flat, no-wind course (CdA 0.32, 9 kg bike, your weight); swim uses your CSS +3% for open water; triathlon runs are slowed 3–12% for fatigue off the bike. Treat them as a guide, not a promise.</p></div>`;
 }
+/* ---------- training readiness (from intervals.icu HRV, resting HR, sleep score and form) ---------- */
+function readiness(){
+  if(!ST||!data)return null;
+  const comps=[],cl=(x)=>Math.max(0,Math.min(100,x));
+  const hv=wseries('hrv');
+  if(hv.length>=10){const a3=avg(hv.slice(-3)),b=avg(hv.slice(-35,-3)),r=a3/b;comps.push({n:'HRV',w:.30,s:cl(75+(r-1)*250),d:`3-day avg ${a3.toFixed(0)} ms vs ${b.toFixed(0)} ms baseline (${r>=1?'+':''}${((r-1)*100).toFixed(0)}%)`})}
+  const rh=wseries('restingHR');
+  if(rh.length>=10){const a3=avg(rh.slice(-3)),b=avg(rh.slice(-35,-3)),dl=a3-b;comps.push({n:'Resting HR',w:.20,s:cl(75-dl*12),d:`3-day avg ${a3.toFixed(0)} bpm vs ${b.toFixed(0)} bpm baseline (${dl>=0?'+':''}${dl.toFixed(1)})`})}
+  const sl=wseries('sleepScore');
+  if(sl.length>=2){const a3=avg(sl.slice(-3));comps.push({n:'Sleep',w:.25,s:cl(a3),d:`last ${Math.min(3,sl.length)} nights avg score ${a3.toFixed(0)}`})}
+  if(ST.form!=null)comps.push({n:'Form (TSB)',w:.25,s:cl(60+ST.form*2.5),d:`${ST.form>0?'+':''}${ST.form.toFixed(0)} from intervals.icu`});
+  if(!comps.length)return{none:true};
+  const tw=comps.reduce((a,c)=>a+c.w,0),score=Math.round(comps.reduce((a,c)=>a+c.s*c.w,0)/tw);
+  const lv=score>=80?{l:'Primed',c:'#34d399',a:'Good day for a hard session – your recovery markers are strong.',e:5}:score>=65?{l:'Ready',c:'#86efac',a:'Normal training – a quality session is fine.',e:4}:score>=45?{l:'Moderate',c:'#fbbf24',a:'Keep intensity controlled and favour aerobic work today.',e:3}:{l:'Fatigued',c:'#fb7185',a:'Prioritise recovery – keep it easy or take a rest day.',e:score>=30?2:1};
+  return{score,comps,lv,tw,missing:4-comps.length};
+}
+function readyBlock(){
+  const R=readiness();
+  if(!R)return '';
+  if(R.none)return `<div class="card"><h2>🔋 Training readiness</h2><p class="muted small" style="margin:0">Needs HRV, resting HR, sleep score or form from intervals.icu – none were found in the last synced data.</p></div>`;
+  const arc=251.3,rows=R.comps.map(c=>{const col=c.s>=65?'#34d399':c.s>=45?'#fbbf24':'#fb7185';return `<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><b class="small">${c.n}</b><span class="small muted">${c.d}</span></div><div class="bar" style="margin-top:4px"><div style="width:${c.s.toFixed(0)}%;background:${col}"></div></div></div>`}).join('');
+  return `<div class="card"><h2>🔋 Training readiness</h2><div class="grid two" style="align-items:center">
+   <div style="text-align:center"><svg viewBox="0 0 200 118" style="width:230px;max-width:100%"><path d="M20 100 A80 80 0 0 1 180 100" stroke="#27325a" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M20 100 A80 80 0 0 1 180 100" stroke="${R.lv.c}" stroke-width="16" fill="none" stroke-linecap="round" stroke-dasharray="${(R.score/100*arc).toFixed(1)} ${arc}"/><text x="100" y="90" text-anchor="middle" font-size="40" font-weight="800" fill="#e8ecff">${R.score}</text><text x="100" y="112" text-anchor="middle" font-size="13" fill="${R.lv.c}" font-weight="700">${R.lv.l.toUpperCase()}</text></svg>
+    <div class="small" style="margin-top:4px">${R.lv.a}</div><div class="small muted" style="margin-top:6px">Suggested check-in energy: <b>${R.lv.e}/5</b></div></div>
+   <div>${rows}${R.missing?`<p class="small muted" style="margin:0">Based on ${R.comps.length} of 4 markers – the rest weren't available in your intervals.icu data.</p>`:''}</div></div>
+   <p class="small muted" style="margin:10px 0 0">Score combines HRV (30%), sleep (25%), form (25%) and resting HR (20%) using the latest 3 days against your own 4-week baseline. It's a guide for today's effort, not a medical measure.</p></div>`;
+}
 function renderDash(){
   const el=$('#dash');
   if(!ST){el.innerHTML=`<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">Connect your intervals.icu account to analyze your last 4 weeks of training and build a data-driven triathlon plan.</p><button class="btn" onclick="$('#dlg').showModal()">Connect intervals.icu</button> <button class="btn alt" onclick="demoData()">Try demo data</button></div>`;return}
@@ -438,6 +465,7 @@ function renderDash(){
     ${k('🏃 Run CSS pace · 42d',ST.thr.rp?fmtPace(ST.thr.rp*1.609344)+' /mi':'—',ST.thr.rp?ST.thr.rpSrc:(data.curveErr&&data.curveErr.pace?'pace curve unavailable ('+data.curveErr.pace+')':data.curveInfo&&data.curveInfo.pace?'unreadable – '+data.curveInfo.pace:'reconnect to load 42-day pace curve'))}
     ${k('🚴 Cycling eFTP · 42d',ST.thr.ftp?Math.round(ST.thr.ftp)+' W':'—',ST.thr.ftp?ST.thr.ftpSrc:(data.curveErr&&data.curveErr.power?'power curve unavailable ('+data.curveErr.power+')':data.curveInfo&&data.curveInfo.power?'unreadable – '+data.curveInfo.power:'reconnect to load 42-day power curve'))}
   </div>
+  ${readyBlock()}
   ${trendBlock()}  ${predBlock()}
   <div class="grid two">
     <div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
@@ -840,6 +868,7 @@ function renderCI(){
   if(ST&&ST.form!=null)html+=` · Form ${ST.form>0?'+':''}${ST.form.toFixed(0)}`;
   if(ST&&ST.ctl!=null)html+=` · Fitness ${ST.ctl.toFixed(0)}`;
   if(ST&&ST.atl!=null)html+=` · Fatigue ${ST.atl.toFixed(0)}`;
+  {const R=readiness();if(R&&!R.none)html+=` · Readiness ${R.score} (${R.lv.l})`}
   el.innerHTML=html;
 }
 const sel=w=>w.sessions.filter(s=>s.on);
@@ -909,7 +938,7 @@ function csvWeek(){
 // const FIREBASE_CONFIG={apiKey:"...",authDomain:"your-app.firebaseapp.com",projectId:"your-app",appId:"..."};
 const FIREBASE_CONFIG=null;
 // Only this Google account may use the cloud-synced app (set it to your own address, e.g. 'you@gmail.com'):
-const ALLOWED_EMAIL='greenstone.scott@gmail.com';
+const ALLOWED_EMAIL='';
 let lockMsg='';
 const isOwner=u=>!!u&&!!ALLOWED_EMAIL&&u.emailVerified&&String(u.email||'').toLowerCase()===ALLOWED_EMAIL.toLowerCase();
 function lockUI(){
