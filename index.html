@@ -446,7 +446,7 @@ function readyBlock(){
    <div style="text-align:center"><svg viewBox="0 0 200 118" style="width:230px;max-width:100%"><path d="M20 100 A80 80 0 0 1 180 100" stroke="#27325a" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M20 100 A80 80 0 0 1 180 100" stroke="${R.lv.c}" stroke-width="16" fill="none" stroke-linecap="round" stroke-dasharray="${(R.score/100*arc).toFixed(1)} ${arc}"/><text x="100" y="90" text-anchor="middle" font-size="40" font-weight="800" fill="#e8ecff">${R.score}</text><text x="100" y="112" text-anchor="middle" font-size="13" fill="${R.lv.c}" font-weight="700">${R.lv.l.toUpperCase()}</text></svg>
     <div class="small" style="margin-top:4px">${R.lv.a}</div><div class="small muted" style="margin-top:6px">Suggested check-in energy: <b>${R.lv.e}/5</b></div></div>
    <div>${rows}${R.missing?`<p class="small muted" style="margin:0">Based on ${R.comps.length} of 4 markers – the rest weren't available in your intervals.icu data.</p>`:''}</div></div>
-   <p class="small muted" style="margin:10px 0 0">Score combines HRV (30%), sleep (25%), form (25%) and resting HR (20%) using the latest 3 days against your own 4-week baseline.</p></div>`;
+   <p class="small muted" style="margin:10px 0 0">Score combines HRV (30%), sleep (25%), form (25%) and resting HR (20%) using the latest 3 days against your own 4-week baseline. It's a guide for today's effort, not a medical measure.</p></div>`;
 }
 /* ---------- race readiness (per upcoming race goal) ---------- */
 const RR={sprint:{ctl:35,h:5,lb:60,lr:40,p:'Sprint triathlon'},olympic:{ctl:50,h:7,lb:90,lr:60,p:'Olympic triathlon'},'70.3':{ctl:65,h:10,lb:150,lr:90,p:'70.3 triathlon'},ironman:{ctl:85,h:14,lb:210,lr:120,p:'140.6 triathlon'},
@@ -711,7 +711,7 @@ function mkSession(ds,role,mins,v,g,pi,phase,extra,race){
   const title=W.title+(extra||'');
   const text=(W.header?W.header+'\n\n':'')+W.sections.map(sc=>`${sc.name}${sc.reps>1?' '+sc.reps+'x':''}\n`+sc.steps.map(x=>'- '+x.l).join('\n')).join('\n\n');
   const blocks=W.sections.map(sc=>({name:sc.name+(sc.reps>1?` ×${sc.reps}`:''),mins:Math.round(sc.steps.reduce((a,x)=>a+(x.s||0),0)*sc.reps/60),what:sc.steps.map(x=>x.l).join('\n'),target:sc.tip||''}));
-  return{date:ds,sport:sp,role,kind,mins:m,title,main:title,desc:title+(g?` 🎯 ${g}`:''),tss:Math.round(m/60*IFR[role]**2*100),phase,goal:g||null,on:true,text,blocks,eid:`tripulse-${ds}-${sp}-${role}`,eventId:null,syncedAt:null,yards:W.yards||null};
+  return{date:ds,sport:sp,role,kind,mins:m,title,main:title,desc:title+(g?` 🎯 ${g}`:''),tss:Math.round(m/60*IFR[role]**2*100),phase,goal:g||null,on:true,text,blocks,eid:`tripulse-${ds}-${sp}-${role}`,eventId:null,syncedAt:null,yards:W.yards||null,v:v||null};
 }
 
 /* ---------- season roadmap: every race in the goals, phase + target hours per week ---------- */
@@ -753,7 +753,7 @@ function buildRoadmap(o){
       if((i-segStart+1)%4===0&&i>segStart){h=lastLoad*.75;rec=true}else{k++;h=Math.min(peak,base*Math.pow(1+ramp,k));lastLoad=h}
     }
     weeks.push({n:i+1,start:ymd(addDays(start,i*7)),phase,hours:h,rec,raceDay:race?ymd(race.date):null,
-      race:race?{name:race.name,dist:race.dist,prio:race.prio}:null,target:tr?{name:tr.name,dist:tr.dist,prio:tr.prio}:null});
+      race:race?{name:race.name,dist:race.dist,prio:race.prio}:null,target:tr?{name:tr.name,dist:tr.dist,prio:tr.prio,date:ymd(tr.date)}:null});
   }
   return{opts:{start:ymd(start),weeks:n,ramp},base,weeks,truncated:all.some(r=>wkOf(r)>=60)};
 }
@@ -882,9 +882,86 @@ function buildWeek(ws,ci){
   const got=sessions.filter(s=>s.sport!=='race').reduce((a,s)=>a+s.mins,0)/60;
   if(got<h*.88)why.push(`Planned ${got.toFixed(1)} h vs ${h.toFixed(1)} h target – your limits (weekday workouts ≤ 1h15, long ride ≤ 3h30, long run ≤ 2h30) cap the volume.`);
   const prev=weeksLog[key],oldIds=prev?[...(prev.oldIds||[]),...prev.sessions.map(s=>s.eventId).filter(Boolean)]:[];
-  return{start:key,phase,n:rw.n,total:road.weeks.length,sessions,why,made:Date.now(),oldIds,syncedAt:null};
+  const reasoning=buildReasoning({rw,phase,pi,sessions,h,LB,LR,A,ci,fm,hot,downgrade,why,strDays,ws,total:road.weeks.length});
+  return{start:key,phase,n:rw.n,total:road.weeks.length,sessions,why,reasoning,made:Date.now(),oldIds,syncedAt:null};
 }
 
+/* ---------- reasoning behind the week's plan ---------- */
+const PHASE_WHY={
+ Base:'Base phase: build your aerobic engine and durability with steadily rising volume. Intensity stays moderate (sweet spot / tempo) so your body can absorb the growing load.',
+ Build:'Build phase: volume stays high while intensity rises – threshold work is where most of the fitness gains come from.',
+ Peak:'Peak phase: sharpen with race-specific intensity while volume levels off, so fitness is at its highest as the race approaches.',
+ Taper:'Taper: volume drops while some intensity stays, so you arrive at the race fresh but still sharp.',
+ Race:'Race week: only short, easy openers before race day so you start rested.',
+ Recover:'Post-race recovery: easy sessions only, so your body absorbs the race and you are ready to build again.'};
+const FOCUS_WHY={
+ ftp:'extra bike intensity – progressive threshold sets, tempo on the easy-ride day and tempo blocks in the long ride',
+ vo2:'VO2max intervals on the bike and run (Build/Peak phases)',
+ speed:'speed reps in miles on the quality run and strides on the easy run',
+ durability:'longer easy runs (+15 min), a longer long run (+10%) and a steady-paced finish to teach your legs to hold form when tired',
+ endurance:'long ride and long run about 10% longer',
+ swim:'both pool sessions become CSS-focused and swim gets a bigger share of the weekly volume',
+ hills:'hill repeats and a hilly long ride',
+ strength:'an extra core session for resilience',
+ volume:'a higher peak weekly volume in the roadmap'};
+function sessionReason(s,pi){
+  const v=s.v,r=s.role;let t='';
+  if(r==='swimQ')t=pi===0?'CSS repeats at about 95% pace build swim-specific threshold, and the shorter 100s keep stroke quality high while volume builds.':'Longer repeats at CSS pace raise the swim speed you can sustain – the most race-relevant swim fitness.';
+  else if(r==='swimE')t='Aerobic endurance swim with pull buoy/paddles builds swim durability and upper-body strength with little joint stress.';
+  else if(r==='swimT')t='Technique swim (drills + fins) keeps your feel for the water while the rest of the week is kept easy.';
+  else if(r==='bikeE')t='Easy Z2 ride adds aerobic volume and active recovery between the key sessions.';
+  else if(r==='bikeQ')t={ss:'Sweet spot (88–94% of FTP) delivers a large aerobic and threshold benefit for moderate fatigue – ideal while volume is still building.',thr:'Threshold intervals at about FTP raise the power you can hold for long efforts.',thr2:'Race-intensity blocks just above FTP prepare you for the demands of race day.',vo2:'Short VO2max intervals lift your aerobic ceiling.',hill:'Seated climbing at a hard effort builds strength-endurance and pedalling torque.',tempo:'Tempo blocks on the usually-easy ride day add steady intensity to drive FTP progress.'}[v]||'Key bike session to progress your power.';
+  else if(r==='longBike')t={z2:'Long Z2 ride builds your aerobic base, fat-burning and fuelling habits (capped at 3h30).',tempoBlocks:'Tempo blocks inside the long ride teach you to ride strongly when already tired.',raceSpec:'Race-specific long ride rehearses race effort and nutrition.'}[v]||'Long ride for endurance.';
+  else if(r==='runQ')t={tempo:'Tempo running raises the pace you can hold comfortably and improves running economy.',thr:'Threshold reps at critical-speed pace lift your sustainable running speed.',speed:'Short fast reps in miles build speed and efficiency with full recoveries.',vo2:'3-minute VO2 intervals raise your aerobic ceiling.',hill:'Hill reps build power and running strength with less impact than flat speed work.'}[v]||'Key run session to progress pace.';
+  else if(r==='runE')t=v==='strides'?'Easy running plus short strides keeps leg speed and running economy ticking over without adding fatigue.':'Easy aerobic run adds running volume safely and aids recovery.';
+  else if(r==='longRun')t={easy:'Long easy run builds endurance and resilience (capped at 2h30).',prog:'Long run with a steady finish teaches your legs to hold pace when fatigued.',prog2:'Long run with a longer steady finish rehearses race-pace fatigue.'}[v]||'Long run for endurance.';
+  else if(r==='strA')t='Strength A (legs & core, dumbbells + bands) builds the strength that protects your knees and hips and improves power.';
+  else if(r==='strB')t='Strength B (upper body & core) supports swim and bike posture and overall resilience.';
+  else if(r==='core')t='Short core circuit for trunk stability that carries over to all three sports.';
+  if(s.goal&&s.goal!=='Weekly focus')t+=` (Shaped by your goal: ${s.goal}.)`;else if(s.goal)t+=' (Shaped by this week\'s focus choice.)';
+  return t;
+}
+function buildReasoning(c){
+  const {rw,phase,pi,sessions,h,LB,LR,A,ci,fm,hot,downgrade,why,strDays,ws,total}=c,sec=[];
+  const real=sessions.filter(s=>s.sport!=='race'),got=real.reduce((a,s)=>a+s.mins,0)/60,has=r=>real.some(s=>s.role===r);
+  // 1 season context
+  const a=[PHASE_WHY[phase]];
+  if(rw.rec)a.push('This is a planned recovery week: every 4th week the volume drops about 25% so the previous weeks\' training turns into fitness.');
+  if(rw.target){const wl=rw.target.date?Math.max(0,Math.ceil((pd(rw.target.date)-ws)/6048e5)):null;a.push(`You are building toward ${esc(rw.target.name)} (${DIST[rw.target.dist].n}, ${rw.target.prio} race)${wl!=null?` – about ${wl} week${wl===1?'':'s'} away`:''}.`)}
+  else a.push('No upcoming race is in the roadmap, so this follows a general build cycle (3 weeks up, 1 week easier).');
+  a.push(`Week ${rw.n} of ${total} in your roadmap.`);
+  sec.push({h:'Where this week fits in your season',items:a});
+  // 2 volume
+  const b=[`Roadmap target for this week: ${rw.hours.toFixed(1)} h.`];
+  const adj=why.filter(x=>/^(Energy|Poor sleep|Mild soreness|Significant|Your notes|Form|Last 7 days|Capped|Hard sessions|Post-race|Days already|Race week)/.test(x));
+  adj.forEach(x=>b.push(x));
+  if(!adj.length)b.push('Nothing in your check-in or recent data called for changing the target.');
+  {const R=readiness();if(R&&!R.none)b.push(`Your training readiness is ${R.score} (${R.lv.l}) from intervals.icu recovery data – ${R.lv.a}`)}
+  b.push(`Result: ${got.toFixed(1)} h across ${real.length} sessions.`);
+  const capNote=why.find(x=>/^Planned .* h vs/.test(x));if(capNote)b.push(capNote);
+  sec.push({h:'Why this much training',items:b});
+  // 3 structure
+  const st=[];
+  st.push(`Pool access is Tuesday and Friday, so both swims are fixed there, each paired with one run or bike session (${A?'Tue swim + run, Fri swim + bike':'Tue swim + bike, Fri swim + run'} this week). The pairing alternates weekly so run and bike load stay balanced.`);
+  st.push('Key bike and run sessions sit mid-week, on different days, so you are fresh for them after the rest day and recovered before the long weekend sessions.');
+  if(has('longBike')||has('longRun'))st.push(`Long sessions go on the weekend when you have the most time${has('longBike')?` – ride ${DN[ci.longBikeDay]} ${fmtDur(LB)} (max 3h30)`:''}${has('longRun')?`, run ${DN[ci.longRunDay]} ${fmtDur(LR)} (max 2h30)`:''}. They scale with the week's volume, and riding then running on consecutive days builds durability.`);
+  st.push('Weekday workouts are capped at 1h15 (swims 1h), so extra volume is carried by the long sessions instead.');
+  const sd=real.filter(s=>s.sport==='strength').length;if(sd)st.push(`${sd} short strength/core session${sd===1?'':'s'} (dumbbells and bands) are slotted onto days with a lighter load to build resilience without hurting your key workouts.`);
+  const rest=DN.filter((d,i)=>!sessions.some(s=>s.date===ymd(addDays(ws,i))));if(rest.length)st.push(`Rest day${rest.length>1?'s':''}: ${rest.join(', ')}.`);
+  sec.push({h:'Why the week is laid out this way',items:st});
+  // 4 focus
+  const f=[];
+  if(downgrade)f.push('Because of the recovery or health signals above, hard sessions were swapped for easy work and no focus blocks were added.');
+  else if(hot&&fm.size){[...new Set([...fm.entries()].map(([x,g])=>`${esc(g.name)} → ${FLABEL[x]}: ${FOCUS_WHY[x]||'targeted work'}`))].forEach(x=>f.push(x))}
+  else f.push('No specific focus is active, so each session follows the standard progression for the '+phase+' phase.');
+  sec.push({h:'Focus and goals',items:f});
+  // 5 intensity balance
+  const hard=real.filter(s=>['swimQ','bikeQ','runQ','longBike','longRun'].includes(s.role)),hm=hard.reduce((a,s)=>a+s.mins,0),tm=real.reduce((a,s)=>a+s.mins,0)||1;
+  const bySp=['swim','bike','run'].map(x=>`${ICON[x]} ${(real.filter(s=>s.sport===x).reduce((a,s)=>a+s.mins,0)/60).toFixed(1)} h`).join('  ');
+  sec.push({h:'Intensity balance',items:[`${hard.length} key sessions (quality or long) and ${real.length-hard.length} easy/strength sessions – the rest of the time is deliberately easy so the key sessions can be done well.`,`About ${Math.round(hm/tm*100)}% of the minutes sit in key sessions (long sessions are mostly steady Z2).`,`Time by sport: ${bySp}.`]});
+  const table=sessions.filter(s=>s.sport!=='race').map(s=>({day:`${DN[(pd(s.date).getDay()+6)%7]} ${fmtDate(pd(s.date))}`,icon:ICON[s.sport],title:s.title,why:sessionReason(s,pi)}));
+  return{sections:sec,table};
+}
 /* ---------- check-in UI ---------- */
 const DN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 function readCI(){return{week:$('#c_week').value,energy:+$('#c_energy').value,sleep:$('#c_sleep').value,sore:$('#c_sore').value,cap:null,longBikeDay:+$('#c_long').value,longRunDay:+$('#c_longrun').value,strDays:+$('#c_str').value,focus:$$('#c_focus input').filter(x=>x.checked).map(x=>x.value),notes:$('#c_notes').value.trim(),days:$$('#c_days input').filter(x=>x.checked).map(x=>+x.value)}}
@@ -926,8 +1003,15 @@ function renderWeek(){
     <details open><summary><b>How this week was built</b></summary><ul class="why small">${w.why.map(x=>`<li>${x}</li>`).join('')}</ul></details>
     <p class="small muted">Tap a workout to see its warm-up, main set and cool-down, the exact intervals.icu text, and a sync button for that single workout. Untick any workout you don't want in “Sync all”.</p>
     <div class="row"><button class="btn" id="syncWeek" onclick="syncWeek()"></button><button class="btn alt" onclick="csvWeek()">Export CSV</button><span id="syncInfo" class="small"></span></div></div>
-    <div class="week"><div class="days">${DN.map((dn,di)=>{const ds=ymd(addDays(ws,di));return `<div class="day"><h4>${dn} ${fmtDate(addDays(ws,di))}</h4>${w.sessions.map((s,i)=>s.date!==ds?'':s.sport==='race'?`<div class="chip race"><b>🏁 RACE DAY</b><p>${esc(s.desc)}</p></div>`:`<details class="chip ${s.sport}"><summary><input type="checkbox" ${s.on?'checked':''} onclick="event.stopPropagation()" onchange="togS(${i},this.checked)"><b>${ICON[s.sport]} ${s.sport==='swim'&&s.yards?s.yards+SU:s.mins+' min'}</b> <span class="muted">${s.kind} · ${s.mins}m · ${s.tss} TSS${s.syncedAt?' · ✔ synced':''}</span></summary><p>${esc(s.desc)}</p>${blocks(s)}<div class="row" style="margin-top:8px"><button class="btn sm" onclick="syncOne(${i})">☁ ${s.syncedAt?'Re-sync':'Sync'} this workout</button></div><details><summary class="small muted">intervals.icu workout text</summary><pre>${esc(s.text)}</pre></details></details>`).join('')||'<span class="muted">Rest</span>'}</div>`}).join('')}</div></div>`;
+    ${reasonCard(w)}<div class="week"><div class="days">${DN.map((dn,di)=>{const ds=ymd(addDays(ws,di));return `<div class="day"><h4>${dn} ${fmtDate(addDays(ws,di))}</h4>${w.sessions.map((s,i)=>s.date!==ds?'':s.sport==='race'?`<div class="chip race"><b>🏁 RACE DAY</b><p>${esc(s.desc)}</p></div>`:`<details class="chip ${s.sport}"><summary><input type="checkbox" ${s.on?'checked':''} onclick="event.stopPropagation()" onchange="togS(${i},this.checked)"><b>${ICON[s.sport]} ${s.sport==='swim'&&s.yards?s.yards+SU:s.mins+' min'}</b> <span class="muted">${s.kind} · ${s.mins}m · ${s.tss} TSS${s.syncedAt?' · ✔ synced':''}</span></summary><p>${esc(s.desc)}</p>${blocks(s)}<div class="row" style="margin-top:8px"><button class="btn sm" onclick="syncOne(${i})">☁ ${s.syncedAt?'Re-sync':'Sync'} this workout</button></div><details><summary class="small muted">intervals.icu workout text</summary><pre>${esc(s.text)}</pre></details></details>`).join('')||'<span class="muted">Rest</span>'}</div>`}).join('')}</div></div>`;
   updTotals();
+}
+function reasonCard(w){
+  const R=w.reasoning;if(!R)return '';
+  return `<details class="card" open><summary style="font-size:16px"><b>🧠 Why this plan</b> <span class="small muted" style="font-weight:400">– the reasoning behind this week</span></summary>
+   ${R.sections.map(sc=>`<h3 style="margin:14px 0 4px;font-size:14px;color:var(--acc)">${sc.h}</h3><ul class="why small" style="margin:0">${sc.items.map(x=>`<li>${x}</li>`).join('')}</ul>`).join('')}
+   <h3 style="margin:14px 0 4px;font-size:14px;color:var(--acc)">Workout by workout</h3>
+   <div style="overflow-x:auto"><table><tr><th>Day</th><th>Workout</th><th>Why it's in your week</th></tr>${R.table.map(r=>`<tr><td style="white-space:nowrap">${esc(r.day)}</td><td>${r.icon} ${esc(r.title)}</td><td class="small">${esc(r.why)}</td></tr>`).join('')}</table></div></details>`;
 }
 function renderHistory(){
   const keys=Object.keys(weeksLog).sort().reverse(),el=$('#history');
