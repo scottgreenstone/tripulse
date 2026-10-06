@@ -197,6 +197,7 @@ details.card>summary{cursor:pointer;font-weight:700}
     <p>Signed in as <b id="fb_user"></b></p>
     <label style="text-transform:none;letter-spacing:0;font-size:13px;color:var(--tx);display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="fb_creds" style="width:auto;margin-top:3px" onchange="fbCreds(this.checked)"><span>Also sync my intervals.icu Athlete ID &amp; API key, so new computers connect automatically (stored in your private document only)</span></label>
     <p class="small muted" id="fb_info"></p>
+    <details><summary class="small muted">Cloud diagnostics</summary><pre id="fb_diag" style="white-space:pre-wrap;font-size:11px;background:#0d1328;border:1px solid var(--line);border-radius:8px;padding:8px"></pre></details>
     <div class="row"><button class="btn alt sm" onclick="cloudPull()">Sync now</button><button class="btn alt sm" onclick="cloudPull(true)">Load from cloud</button><button class="btn alt sm" onclick="cloudPush(true)">Save this computer to cloud</button><button class="btn alt sm" onclick="fbOut()">Sign out</button></div>
   </div>
   <p class="small" id="fb_msg" style="color:var(--bad)"></p>
@@ -908,7 +909,7 @@ function csvWeek(){
 // const FIREBASE_CONFIG={apiKey:"...",authDomain:"your-app.firebaseapp.com",projectId:"your-app",appId:"..."};
 const FIREBASE_CONFIG=null;
 // Only this Google account may use the cloud-synced app (set it to your own address, e.g. 'you@gmail.com'):
-const ALLOWED_EMAIL='greenstone.scott@gmail.com';
+const ALLOWED_EMAIL='';
 let lockMsg='';
 const isOwner=u=>!!u&&!!ALLOWED_EMAIL&&u.emailVerified&&String(u.email||'').toLowerCase()===ALLOWED_EMAIL.toLowerCase();
 function lockUI(){
@@ -920,7 +921,7 @@ function lockUI(){
 let fbCfg=FIREBASE_CONFIG||store.get('tp_fbcfg',null),fbOpts=store.get('tp_fbopts',{creds:false}),fb=null,lastPull=0;
 const cloudOn=()=>!!(fb&&fb.user&&!(data&&data.demo));
 function cloudStatus(t){const e=$('#cloudStat');if(e)e.textContent=t}
-function fbMsg(t){const e=$('#fb_msg');if(e)e.textContent=t||''}
+function fbMsg(t){const e=$('#fb_msg');if(e)e.textContent=t||'';if(t&&!(fb&&fb.user)){lockMsg=t;lockUI()}}
 function fbUI(){
   const sig=!!(fb&&fb.user);
   $('#fbSetup').classList.toggle('hide',!!FIREBASE_CONFIG||!!fbCfg&&sig);
@@ -951,7 +952,14 @@ async function fbOut(){try{await fb.auth.signOut(fb.au)}catch(e){fbMsg(e.message
 function fbCreds(v){fbOpts.creds=!!v;store.set('tp_fbopts',fbOpts);cloudPush()}
 const fbDoc=()=>fb.fs.doc(fb.db,'tripulse',fb.user.uid);
 const localEmpty=()=>!goals.length&&!Object.keys(weeksLog).length&&!road;
-function fbInfo(ru){const e=$('#fb_info');if(e)e.textContent=`Cloud copy: ${ru?new Date(ru).toLocaleString():'none'} · This computer: ${localUpdated()?new Date(localUpdated()).toLocaleString():'never edited'}`}
+const syncedAt=()=>{try{return Number(localStorage.getItem('tp_synced'))||0}catch(e){return 0}};
+const setSynced=v=>{try{localStorage.setItem('tp_synced',String(v))}catch(e){}};
+const counts=o=>`${(o.goals||[]).length} goals, ${Object.keys(o.weeks||{}).length} saved weeks, roadmap ${o.road?'yes':'no'}`;
+let diag={};
+function fbInfo(ru){
+  const e=$('#fb_info');if(e)e.textContent=`Cloud copy: ${ru?new Date(ru).toLocaleString():'none'} · This computer: ${localUpdated()?new Date(localUpdated()).toLocaleString():'never edited'}`;
+  const d=$('#fb_diag');if(d)d.textContent=`Account: ${fb&&fb.user?(fb.user.email||'?')+'\nUser ID: '+fb.user.uid+'\nCloud document: tripulse/'+fb.user.uid:'not signed in'}\nCloud copy: ${diag.cloud||'not checked yet'}\nThis computer: ${counts({goals,weeks:weeksLog,road})}\nLast result: ${diag.result||'-'}${diag.err?'\nLast error: '+diag.err:''}`;
+}
 async function cloudPush(force){
   if(!cloudOn())return;
   if(!force&&localEmpty()){cloudStatus('☁ nothing to save yet');return}
@@ -959,9 +967,10 @@ async function cloudPush(force){
     let up=localUpdated();if(!up||force){up=Date.now();try{localStorage.setItem('tp_updated',String(up))}catch(e){}}
     const d={updated:up,state:JSON.stringify({goals,weeks:weeksLog,planned:plannedLog,wlb:wLb,road})};
     if(fbOpts.creds&&cfg.id&&cfg.key)d.cfg={id:cfg.id,key:cfg.key};
-    await fb.fs.setDoc(fbDoc(),d);
+    await fb.fs.setDoc(fbDoc(),d);setSynced(up);
+    diag={cloud:counts({goals,weeks:weeksLog,road})+' (just saved)',result:'saved to cloud'};
     cloudStatus('☁ saved '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}));fbInfo(up);
-  }catch(e){cloudStatus('☁ save failed: '+e.message)}
+  }catch(e){diag.err=e.message;cloudStatus('☁ save failed: '+e.message);fbInfo()}
 }
 function applyRemote(b){
   cloudApplying=true;
@@ -973,26 +982,34 @@ function applyRemote(b){
 async function cloudPull(force){
   if(!cloudOn())return;
   try{
-    lastPull=Date.now();cloudStatus('☁ checking…');
+    lastPull=Date.now();cloudStatus('☁ checking…');diag.err='';
     const snap=await fb.fs.getDoc(fbDoc());
-    if(!snap.exists()){fbInfo(0);await cloudPush();return}
-    const d=snap.data(),local=localUpdated(),ru=d.updated||0;
+    if(!snap.exists()){diag={cloud:'no document yet',result:'nothing in the cloud for this account'};fbInfo(0);await cloudPush();return}
+    const d=snap.data(),local=localUpdated(),ru=d.updated||0,synced=syncedAt();
     if(d.cfg&&d.cfg.id&&d.cfg.key&&(!cfg.id||!cfg.key)){cfg={id:d.cfg.id,key:d.cfg.key};store.set('tp_cfg',cfg);fbOpts.creds=true;store.set('tp_fbopts',fbOpts);sync()}
-    const remote=JSON.parse(d.state||'{}');
-    const remoteHas=!!((remote.goals&&remote.goals.length)||(remote.weeks&&Object.keys(remote.weeks).length)||remote.road);
-    if(force===true||(remoteHas&&(ru>local||localEmpty()))){
-      applyRemote({...remote,updated:ru||Date.now()});cloudStatus('☁ loaded from the cloud');
-    }else if(local>ru)await cloudPush();
-    else cloudStatus('☁ in sync');
+    const remote=JSON.parse(d.state||'{}'),remoteHas=!!((remote.goals&&remote.goals.length)||(remote.weeks&&Object.keys(remote.weeks).length)||remote.road);
+    diag.cloud=counts(remote)+` · saved ${ru?new Date(ru).toLocaleString():'?'}`;
+    const localDirty=!localEmpty()&&local>synced,remoteNew=remoteHas&&ru>synced;
+    const load=why=>{applyRemote({...remote,updated:ru||Date.now()});setSynced(ru||Date.now());diag.result=why;cloudStatus('☁ loaded from the cloud')};
+    if(force===true)load('loaded from cloud (manual)');
+    else if(!remoteHas){diag.result='cloud copy is empty';if(!localEmpty())await cloudPush();else cloudStatus('☁ in sync')}
+    else if(localEmpty())load('loaded from cloud (this computer was empty)');
+    else if(remoteNew&&localDirty){
+      if(confirm(`The cloud copy (${counts(remote)}, saved ${new Date(ru).toLocaleString()}) and this computer (${counts({goals,weeks:weeksLog,road})}) are different.\n\nOK = load the cloud copy (replaces this computer's data)\nCancel = keep this computer's data and overwrite the cloud copy`))load('loaded from cloud (you chose the cloud copy)');
+      else{diag.result='kept this computer; overwriting cloud';await cloudPush(true)}
+    }
+    else if(remoteNew)load('loaded newer cloud copy');
+    else if(localDirty)await cloudPush();
+    else{diag.result='already in sync';cloudStatus('☁ in sync')}
     fbInfo(ru);
-  }catch(e){cloudStatus('☁ unavailable: '+e.message)}
+  }catch(e){diag.err=e.message;cloudStatus('☁ unavailable: '+e.message);fbInfo()}
 }
 
 /* ---------- ui wiring ---------- */
 $$('nav button').forEach(b=>b.onclick=()=>{$$('nav button').forEach(x=>x.classList.toggle('on',x===b));$$('.tab').forEach(t=>t.classList.toggle('on',t.id===b.dataset.t))});
 $('#openSet').onclick=()=>{$('#s_id').value=cfg.id;$('#s_key').value=cfg.key;$('#s_msg').textContent='';$('#dlg').showModal()};
 $('#closeSet').onclick=()=>$('#dlg').close();
-$('#openCloud').onclick=()=>{fbMsg('');fbUI();$('#dlg2').showModal()};
+$('#openCloud').onclick=()=>{fbMsg('');fbUI();fbInfo(0);$('#dlg2').showModal()};
 $('#demo').onclick=()=>{$('#dlg').close();demoData()};
 $('#saveSet').onclick=async()=>{
   cfg={id:$('#s_id').value.trim(),key:$('#s_key').value.trim()};
