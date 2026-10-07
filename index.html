@@ -394,7 +394,14 @@ function trendCard(label,key,unit,goodUp){
   const dd=d!=null?d:(v.length>1?last-v[0]:0),col=(goodUp?dd>=0:dd<=0)?'#34d399':'#fb7185',arrow=dd>0?'▲':dd<0?'▼':'→';
   return `<div class="kpi"><span>${label} · 28-day trend</span><b>${last.toFixed(0)}<small style="font-size:13px"> ${unit}</small></b>${spark(v,col)}<em style="color:${col}">${arrow} 7-day avg ${a7.toFixed(0)}${d!=null?` (${d>0?'+':''}${d.toFixed(1)} vs prior week)`:''}</em></div>`;
 }
-const trendBlock=()=>`<div class="grid kpis" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${trendCard('HRV','hrv','ms',true)}${trendCard('Resting HR','restingHR','bpm',false)}${trendCard('Sleep score','sleepScore','',true)}</div>
+function weightCard(){
+  const v=wseries('weight').slice(-28).map(k=>k*2.20462);
+  if(!v.length)return `<div class="kpi"><span>Weight</span><b>—</b><em class="muted">no weight data synced from intervals.icu</em></div>`;
+  const last=v[v.length-1],a7=avg(v.slice(-7)),p7=v.length>=10?avg(v.slice(-14,-7)):null,d=p7!=null?a7-p7:null;
+  const dd=d!=null?d:(v.length>1?last-v[0]:0),col='#22d3ee',arrow=dd>0?'▲':dd<0?'▼':'→';
+  return `<div class="kpi"><span>Weight · 28-day trend</span><b>${last.toFixed(1)}<small style="font-size:13px"> lb</small></b>${spark(v,col)}<em style="color:${col}">${arrow} 7-day avg ${a7.toFixed(1)}${d!=null?` (${d>0?'+':''}${d.toFixed(1)} vs prior week)`:''}</em></div>`;
+}
+const trendBlock=()=>`<div class="grid kpis" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${trendCard('HRV','hrv','ms',true)}${trendCard('Resting HR','restingHR','bpm',false)}${trendCard('Sleep score','sleepScore','',true)}${weightCard()}</div>
 `;
 /* ---------- race predictions ---------- */
 let wLb=store.get('tp_wlb',165);
@@ -586,7 +593,6 @@ function raceReadyBlock(){
     return `<div class="goal" style="display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center">
      <div style="text-align:center"><svg viewBox="0 0 150 92" style="width:150px"><path d="M15 80 A60 60 0 0 1 135 80" stroke="#27325a" stroke-width="13" fill="none" stroke-linecap="round"/><path d="M15 80 A60 60 0 0 1 135 80" stroke="${col}" stroke-width="13" fill="none" stroke-linecap="round" stroke-dasharray="${(x.score/100*arc).toFixed(1)} ${arc}"/><text x="75" y="72" text-anchor="middle" font-size="30" font-weight="800" fill="#e8ecff">${x.score}</text><text x="75" y="90" text-anchor="middle" font-size="11" font-weight="700" fill="${col}">${x.label.toUpperCase()}</text></svg></div>
      <div><h3 style="margin:0 0 4px"><span class="tag r">RACE ${esc(x.r.prio)}</span> ${esc(x.r.name)} <span class="muted small" style="font-weight:400">${DIST[x.r.dist].n} · ${esc(fmtD(x.r.start))} · ${x.days===0?'today':x.days+' day'+(x.days===1?'':'s')+' ('+x.weeks+' wk)'}</span></h3>
-     ${x.pred?`<div class="small">Predicted finish: <b>${x.pred}</b>${x.predAdj?` <span class="muted">· ${x.predAdj}</span>`:` <span class="muted">· flat course assumed – add the course profile on the Goals tab</span>`}${x.predLegs?`<div class="muted">${x.predLegs}</div>`:''}</div>`:''}
      ${x.comps.map(c=>`<div style="margin-top:6px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="small"><b>${c.n}</b></span><span class="small muted">${c.d}</span></div><div class="bar" style="margin-top:3px"><div style="width:${c.s.toFixed(0)}%;background:${rrCol(c.s)}"></div></div></div>`).join('')}
      <div class="small" style="margin-top:8px">${x.score>=85?'✔ You\'re in great shape for this race – protect it with a proper taper.':`Biggest gap: <b>${x.gap.n}</b>${wk?` · this week is a ${wk.phase} phase week in your roadmap.`:'.'}`}</div></div></div>`}).join('')+
    `<p class="small muted" style="margin:6px 0 0">Compares your current fitness (CTL) from intervals.icu, projected forward to race day at your recent ramp rate, with what each race distance typically needs. Within 2 weeks of a race it also checks freshness (form). A guide, not a guarantee.</p></div>`;
@@ -662,7 +668,7 @@ function renderGoals(){
   el.innerHTML=[...goals].sort((a,b)=>a.start<b.start?-1:1).map(g=>{
     const now=Date.now(),s=pd(g.start).getTime(),e=addDays(pd(g.end),1).getTime();
     let body;
-    if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div><div class="small" style="margin-top:6px">${courseSummary(g)} <button class="btn alt sm" onclick="openCourse(${g.id})">${g.course?'Edit':'Add'} course profile</button></div>`}
+    if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div>`}
     else{const cur=curMetric(g.metric),pct=cur!=null?Math.min(100,g.metric==='runpace'?g.target/cur*100:cur/g.target*100):0,tp=Math.min(100,Math.max(0,(now-s)/(e-s)*100));
       body=`<div class="small muted">${esc(fmtD(g.start))} → ${esc(fmtD(g.end))}</div><div class="small">${METRIC[g.metric]}: <b>${cur!=null?fmtM(g.metric,cur):'—'}</b> / ${fmtM(g.metric,g.target)} (${pct.toFixed(0)}%) · time elapsed ${tp.toFixed(0)}% ${cur!=null&&pct>=tp-5?'<span style="color:var(--ok)">✔ on track</span>':'<span style="color:var(--bad)">behind pace</span>'}</div><div class="bar"><div style="width:${pct}%"></div></div><div class="small" style="margin-top:6px">🎯 Training focus: ${focusOf(g).length?focusOf(g).map(x=>FLABEL[x]).join(', '):'<span class="muted">no keyword match – general training</span>'}</div>`}
     return `<div class="goal"><h3>${g.type==='race'?'<span class="tag r">RACE '+g.prio+'</span>'+(DIST[g.dist]?DIST[g.dist].n:esc(g.dist)):'<span class="tag">FITNESS</span>'} ${esc(g.name)}<span class="sp"></span><button class="btn alt sm" onclick="delGoal(${g.id})">Delete</button></h3>${body}</div>`}).join('');
