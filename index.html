@@ -118,7 +118,7 @@ details.card>summary{cursor:pointer;font-weight:700}
         <div><label>Goal type</label><select id="g_type"><option value="race">🏁 Race goal</option><option value="fitness">📈 Fitness goal</option></select></div>
         <div><label>Name</label><input id="g_name" placeholder="e.g. Raise FTP to 250W · 5k pace · Swim CSS · Long run"></div>
         <div><label id="l_start">Race date</label><input type="date" id="g_start"></div>
-        <div><label id="l_end">End date (optional – multi-day events)</label><input type="date" id="g_end"></div>
+        <div class="gf hide"><label id="l_end">End date / deadline</label><input type="date" id="g_end"></div>
         <div class="gr"><label>Race / distance</label><select id="g_dist">
           <optgroup label="Triathlon"><option value="sprint">Sprint</option><option value="olympic">Olympic</option><option value="70.3" selected>70.3 / Half</option><option value="ironman">Ironman / Full</option></optgroup>
           <optgroup label="Running"><option value="5k">5k</option><option value="10k">10k</option><option value="half">Half marathon</option><option value="marathon">Marathon</option><option value="50k">50k</option><option value="100k">100k</option></optgroup></select></div>
@@ -727,7 +727,7 @@ function curMetric(m){if(!ST)return null;
   if(m==='runpace')return ST.tot.run.m>0?(ST.tot.run.s/60)/(ST.tot.run.m/1609.344):null;
   const sp=m.slice(0,-2);return ST.tot[sp].m/1609.344/4}
 function toggleGoalForm(){const r=$('#g_type').value==='race';$$('.gr').forEach(e=>e.classList.toggle('hide',!r));$$('.gf').forEach(e=>e.classList.toggle('hide',r));
-  $('#l_start').textContent=r?'Race date':'Start date';$('#l_end').textContent=r?'End date (optional – multi-day events)':'End date / deadline'}
+  $('#l_start').textContent=r?'Race date':'Start date';$('#l_end').textContent='End date / deadline'}
 $('#g_type').onchange=toggleGoalForm;
 $('#g_metric').onchange=()=>{$('#g_target').placeholder={bikewatts:'e.g. 220',runpace:'e.g. 8:30 (min/mile)'}[$('#g_metric').value]||'e.g. 65'};
 let editGoalId=null;
@@ -738,7 +738,7 @@ function resetGoalForm(){
 function editGoal(id){
   const g=goals.find(x=>x.id===id);if(!g)return;
   editGoalId=id;$('#g_type').value=g.type;toggleGoalForm();$('#g_type').disabled=true;
-  $('#g_name').value=g.name;$('#g_start').value=g.start;$('#g_end').value=(g.type==='race'&&g.end===g.start)?'':g.end;
+  $('#g_name').value=g.name;$('#g_start').value=g.start;$('#g_end').value=g.type==='race'?'':g.end;
   if(g.type==='race'){$('#g_dist').value=g.dist;$('#g_prio').value=g.prio}
   else{$('#g_metric').value=g.metric;$('#g_metric').onchange();$('#g_target').value=g.metric==='runpace'?fmtPace(g.target):g.target}
   $('#g_title').textContent='Edit goal';$('#addGoal').textContent='Save changes';$('#cancelGoal').classList.remove('hide');$('#g_err').textContent='';
@@ -747,7 +747,10 @@ function editGoal(id){
 $('#cancelGoal').onclick=resetGoalForm;
 $('#addGoal').onclick=()=>{
   const type=$('#g_type').value,name=$('#g_name').value.trim(),start=$('#g_start').value;let end=$('#g_end').value;const err=$('#g_err');
-  if(type==='race'&&!end)end=start;
+  if(type==='race'){ // races have just a race date; keep the length of an older multi-day race
+    const o=editGoalId&&goals.find(x=>x.id===editGoalId),dur=o&&o.type==='race'&&o.end?Math.round((pd(o.end)-pd(o.start))/864e5):0;
+    end=start?ymd(addDays(pd(start),dur)):'';
+  }
   if(!name||!start||!end){err.textContent='Name and dates are required.';return}
   if(type==='fitness'?pd(end)<=pd(start):pd(end)<pd(start)){err.textContent='End date must be after the start date.';return}
   const old=editGoalId?goals.find(x=>x.id===editGoalId):null,g=old||{id:Date.now(),type,name,start,end};
