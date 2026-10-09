@@ -370,8 +370,8 @@ function progCard(title,pts,o,deltaFn){
 function progBlock(){
   const bike=histSeries('bike'),run=histSeries('run');
   return `<div class="grid two">
-    ${progCard('🚴 Cycling eFTP progression',bike,{col:COL.bike,fmt:v=>Math.round(v)+' W',invert:false,id:'Cycling eFTP'},(a,b)=>({good:b>=a,txt:(b>=a?'+':'')+Math.round(b-a)+' W'}))}
     ${progCard('🏃 Run critical pace progression',run,{col:COL.run,fmt:v=>fmtPace(v)+' /mi',invert:true,id:'Run critical pace'},(a,b)=>{const sec=Math.abs(Math.round((b-a)*60));return{good:b<=a,txt:sec+' sec/mi '+(b<=a?'faster':'slower')}})}
+    ${progCard('🚴 Cycling eFTP progression',bike,{col:COL.bike,fmt:v=>Math.round(v)+' W',invert:false,id:'Cycling eFTP'},(a,b)=>({good:b>=a,txt:(b>=a?'+':'')+Math.round(b-a)+' W'}))}
   </div>`;
 }
 
