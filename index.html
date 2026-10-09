@@ -298,12 +298,83 @@ async function sync(){
       api(`/athlete/${cfg.id}/pace-curves?type=Run&curves=42d`).catch(e=>{errs.pace=e.message;return null}),
       api(`/athlete/${cfg.id}/athlete-summary?start=${o}&end=${n}`).catch(()=>[])]);
     data={acts,well,summary:Array.isArray(sumr)?sumr:(sumr&&sumr.list)||[],curveErr:errs,...derive(acts,pcr,rcr),settings:ath.sportSettings||[],name:ath.name||cfg.id,demo:false,at:Date.now()};
-    store.set('tp_data',data);setStatus('Connected · '+esc(data.name),'ok');renderAll();return true;
+    store.set('tp_data',data);setStatus('Connected · '+esc(data.name),'ok');recordNow();renderAll();loadHist().then(renderDash).catch(()=>{});return true;
   }catch(e){
     const msg=e.message==='Failed to fetch'?'Network/CORS blocked – open this file locally or host it yourself':e.message;
     setStatus('Error: '+msg,'err');$('#s_msg').textContent=msg;return false;
   }
 }
+/* ---------- threshold progression (eFTP + run pace) ---------- */
+let hist=store.get('tp_hist',{bike:{},run:{}});if(!hist.bike)hist.bike={};if(!hist.run)hist.run={};
+const HIST_WEEKS=16;
+const curveList=r=>!r?[]:Array.isArray(r)?r:(r.list||r.curves||(r.secs?[r]:[]));
+const paceFromCS=cs=>1000/cs/60*1.609344; // m/s -> min/mile
+function recordNow(){ // remember today's 42-day values so the graph keeps growing even if history can't be fetched
+  if(!data||data.demo)return;const t=ymd(new Date());
+  if(data.eftp&&data.eftp.v>0)hist.bike[t]=data.eftp.v;
+  if(data.runCS&&data.runCS.v>0)hist.run[t]=paceFromCS(data.runCS.v);
+  store.set('tp_hist',hist);
+}
+async function loadHist(){ // one rolling 42-day curve for each of the last 16 week-ends
+  if(!data||data.demo||!cfg.id||!cfg.key)return;
+  const t=new Date(),wins=[];
+  for(let i=HIST_WEEKS;i>=1;i--){const e=addDays(t,-7*i);wins.push({s:ymd(addDays(e,-41)),e:ymd(e)})}
+  const q=wins.map(w=>`r.${w.s}.${w.e}`).join(',');
+  const [pcr,rcr]=await Promise.all([
+    api(`/athlete/${cfg.id}/power-curves?type=Ride&curves=${q}`).catch(()=>null),
+    api(`/athlete/${cfg.id}/pace-curves?type=Run&curves=${q}`).catch(()=>null)]);
+  const pl=curveList(pcr),rl=curveList(rcr);
+  const pick=(l,w,i)=>l.find(c=>c&&String(c.id||'').includes(w.e))||(l.length===wins.length?l[i]:null);
+  wins.forEach((w,i)=>{
+    const pc=pick(pl,w,i);
+    if(pc){const f=pc.mmp_model&&pc.mmp_model.ftp>0?pc.mmp_model.ftp:fitLine(pc,false);if(f>80&&f<600)hist.bike[w.e]=f}
+    const rc=pick(rl,w,i);
+    if(rc){const cs=fitCS(rc);if(cs>1&&cs<10)hist.run[w.e]=paceFromCS(cs)}
+  });
+  recordNow();store.set('tp_hist',hist);
+}
+function demoHist(){
+  const t=new Date(),b=[],r=[];
+  for(let i=HIST_WEEKS;i>=0;i--){const d=ymd(addDays(t,-7*i)),k=HIST_WEEKS-i;
+    b.push({d,v:222+k*1.0+Math.sin(k/2)*2});r.push({d,v:9.35-k*0.028+Math.cos(k/2)*0.03})}
+  return{bike:b,run:r};
+}
+function histSeries(k){
+  if(data&&data.demo&&data.hist)return data.hist[k]||[];
+  return Object.keys(hist[k]||{}).sort().map(d=>({d,v:hist[k][d]})).filter(x=>x.v>0);
+}
+function progChart(pts,o){ // o: {col,fmt,invert,id}
+  const W=560,H=210,pl=48,pr=18,pt=16,pb=28;
+  if(pts.length<2)return `<p class="small muted" style="margin:0">Not enough history yet. Past 42-day curves load when you sync; if intervals.icu doesn't return them, a point is saved each time you sync and the line fills in over the coming weeks.</p>`;
+  const t0=pd(pts[0].d).getTime(),t1=pd(pts[pts.length-1].d).getTime(),span=Math.max(1,t1-t0);
+  let mn=Math.min(...pts.map(p=>p.v)),mx=Math.max(...pts.map(p=>p.v));const pad2=(mx-mn||mx*0.04)*0.15;mn-=pad2;mx+=pad2;
+  const X=d=>pl+(pd(d).getTime()-t0)/span*(W-pl-pr);
+  const Y=v=>{const f=(v-mn)/(mx-mn);return o.invert?pt+f*(H-pt-pb):H-pb-f*(H-pt-pb)};
+  let g='';
+  for(let i=0;i<=3;i++){const v=mn+(mx-mn)*i/3,y=Y(v);g+=`<line x1="${pl}" x2="${W-pr}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#27325a"/><text x="${pl-6}" y="${(y+4).toFixed(1)}" fill="#8b97c4" font-size="11" text-anchor="end">${o.fmt(v)}</text>`}
+  const line=pts.map((p,i)=>`${i?'L':'M'}${X(p.d).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ');
+  const area=`${line} L${X(pts[pts.length-1].d).toFixed(1)},${H-pb} L${X(pts[0].d).toFixed(1)},${H-pb} Z`;
+  g+=`<path d="${area}" fill="${o.col}" opacity=".08"/><path d="${line}" fill="none" stroke="${o.col}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  pts.forEach((p,i)=>{const last=i===pts.length-1;g+=`<circle cx="${X(p.d).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="${last?5:3}" fill="${last?o.col:'#141b30'}" stroke="${o.col}" stroke-width="2"><title>${fmtDate(pd(p.d))}: ${o.fmt(p.v)}</title></circle>`});
+  const mid=pts[Math.floor(pts.length/2)];
+  [[pts[0],'start'],[mid,'middle'],[pts[pts.length-1],'end']].forEach(([p,a])=>{g+=`<text x="${X(p.d).toFixed(1)}" y="${H-8}" fill="#8b97c4" font-size="11" text-anchor="${a}">${fmtDate(pd(p.d))}</text>`});
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="${o.id} progression">${g}</svg>`;
+}
+function progCard(title,pts,o,deltaFn){
+  let head='<span class="muted small">no data yet</span>';
+  if(pts.length>=2){const a=pts[0],b=pts[pts.length-1],d=deltaFn(a.v,b.v);
+    head=`<b style="font-size:24px">${o.fmt(b.v)}</b> <span class="small" style="color:${d.good?'var(--ok)':'var(--bad)'}">${d.txt} since ${fmtDate(pd(a.d))}</span>`}
+  else if(pts.length===1)head=`<b style="font-size:24px">${o.fmt(pts[0].v)}</b>`;
+  return `<div class="card"><h2>${title}</h2><div style="margin-bottom:6px">${head}</div>${progChart(pts,o)}<div class="small muted">Each point is the rolling 42-day estimate at that date.${o.invert?' Faster is higher on this chart.':''}</div></div>`;
+}
+function progBlock(){
+  const bike=histSeries('bike'),run=histSeries('run');
+  return `<div class="grid two">
+    ${progCard('🚴 Cycling eFTP progression',bike,{col:COL.bike,fmt:v=>Math.round(v)+' W',invert:false,id:'Cycling eFTP'},(a,b)=>({good:b>=a,txt:(b>=a?'+':'')+Math.round(b-a)+' W'}))}
+    ${progCard('🏃 Run critical pace progression',run,{col:COL.run,fmt:v=>fmtPace(v)+' /mi',invert:true,id:'Run critical pace'},(a,b)=>{const sec=Math.abs(Math.round((b-a)*60));return{good:b<=a,txt:sec+' sec/mi '+(b<=a?'faster':'slower')}})}
+  </div>`;
+}
+
 function demoData(){
   const acts=[],t=new Date();t.setHours(7,0,0,0);
   const mk=(d,type,min,spd,hr,load)=>acts.push({type,start_date_local:ymd(d)+'T07:00:00',moving_time:min*60,distance:Math.round(min/60*spd*1000),icu_training_load:load,average_heartrate:hr,average_watts:type==='Ride'?Math.round(185+min/10):undefined,name:type});
@@ -312,7 +383,7 @@ function demoData(){
     mk(addDays(base,2),'Ride',Math.round(70*f),28,142,75);mk(addDays(base,5),'Ride',Math.round(150*f),27,138,130);
     mk(addDays(base,1),'Run',Math.round(35*f),10.5,148,40);mk(addDays(base,3),'Run',Math.round(45*f),11,152,55);mk(addDays(base,6),'Run',Math.round(75*f),10,145,85)}
   const well=[];for(let i=28;i>=0;i--)well.push({id:ymd(addDays(new Date(),-i)),ctl:38+(28-i)*.35,atl:42+Math.sin(i)*6+(28-i)*.4,rampRate:2.1,hrv:62+Math.sin(i/3)*6-(i<7?0:1),restingHR:52+Math.cos(i/4)*2+(i<7?-1:0),sleepScore:Math.round(78+Math.sin(i/2)*7)});
-  data={acts:acts.filter(a=>pd(a.start_date_local)<=new Date()),well,settings:[{types:['Ride','VirtualRide'],ftp:235},{types:['Run'],threshold_pace:3.5},{types:['Swim'],threshold_pace:1.15}],eftp:{v:238,src:'42-day power curve'},runCS:{v:3.6,src:'42-day pace curve'},summary:[{date:ymd(new Date()),fitness:50,fatigue:55,form:-5}],name:'Demo athlete',demo:true,at:Date.now()};
+  data={acts:acts.filter(a=>pd(a.start_date_local)<=new Date()),well,settings:[{types:['Ride','VirtualRide'],ftp:235},{types:['Run'],threshold_pace:3.5},{types:['Swim'],threshold_pace:1.15}],eftp:{v:238,src:'42-day power curve'},runCS:{v:3.6,src:'42-day pace curve'},summary:[{date:ymd(new Date()),fitness:50,fatigue:55,form:-5}],name:'Demo athlete',demo:true,hist:demoHist(),at:Date.now()};
   store.set('tp_data',data);setStatus('Demo data','ok');renderAll();
 }
 
@@ -614,6 +685,7 @@ function renderDash(){
     ${k('🏃 Run CSS pace · 42d',ST.thr.rp?fmtPace(ST.thr.rp*1.609344)+' /mi':'—',ST.thr.rp?ST.thr.rpSrc:(data.curveErr&&data.curveErr.pace?'pace curve unavailable ('+data.curveErr.pace+')':data.curveInfo&&data.curveInfo.pace?'unreadable – '+data.curveInfo.pace:'reconnect to load 42-day pace curve'))}
     ${k('🚴 Cycling eFTP · 42d',ST.thr.ftp?Math.round(ST.thr.ftp)+' W':'—',ST.thr.ftp?ST.thr.ftpSrc:(data.curveErr&&data.curveErr.power?'power curve unavailable ('+data.curveErr.power+')':data.curveInfo&&data.curveInfo.power?'unreadable – '+data.curveInfo.power:'reconnect to load 42-day power curve'))}
   </div>
+  ${progBlock()}
   ${readyBlock()}
   ${raceReadyBlock()}
   ${trendBlock()}  ${predBlock()}
