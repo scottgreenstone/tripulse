@@ -1194,8 +1194,8 @@ function renderWeek(){
     <div class="tot" id="wkTotals"></div>
     <details open><summary><b>How this week was built</b></summary><ul class="why small">${w.why.map(x=>`<li>${x}</li>`).join('')}</ul></details>
     <p class="small muted">Tap a workout to see its warm-up, main set and cool-down, the exact intervals.icu text, and a sync button for that single workout. Untick any workout you don't want in “Sync all”.</p>
-    <div class="row"><button class="btn" id="syncWeek" onclick="syncWeek()"></button><button class="btn alt" onclick="csvWeek()">Export CSV</button><span id="syncInfo" class="small"></span></div></div>
-    <div class="week"><div class="days">${DN.map((dn,di)=>{const ds=ymd(addDays(ws,di));return `<div class="day"><h4>${dn} ${fmtDate(addDays(ws,di))}</h4>${w.sessions.map((s,i)=>s.date!==ds?'':s.sport==='race'?`<div class="chip race"><b>🏁 RACE DAY</b><p>${esc(s.desc)}</p></div>`:`<details class="chip ${s.sport}"><summary><input type="checkbox" ${s.on?'checked':''} onclick="event.stopPropagation()" onchange="togS(${i},this.checked)"><b>${ICON[s.sport]} ${s.sport==='swim'&&s.yards?s.yards+SU:s.mins+' min'}</b> <span class="muted">${s.kind} · ${s.mins}m · ${s.tss} TSS${s.syncedAt?' · ✔ synced':''}</span></summary><p>${esc(s.desc)}</p>${blocks(s)}<div class="row" style="margin-top:8px"><button class="btn sm" onclick="syncOne(${i})">☁ ${s.syncedAt?'Re-sync':'Sync'} this workout</button></div><details><summary class="small muted">intervals.icu workout text</summary><pre>${esc(s.text)}</pre></details></details>`).join('')||'<span class="muted">Rest</span>'}</div>`}).join('')}</div></div>${reasonCard(w)}`;
+    <div class="row"><button class="btn" id="syncWeek" onclick="syncWeek()"></button><button class="btn alt" onclick="csvWeek()">Export CSV</button><button class="btn alt" style="color:var(--bad)" onclick="delWeek('${w.start}')">🗑 Delete week</button><span id="syncInfo" class="small"></span></div></div>
+    <div class="week"><div class="days">${DN.map((dn,di)=>{const ds=ymd(addDays(ws,di));return `<div class="day"><h4>${dn} ${fmtDate(addDays(ws,di))}</h4>${w.sessions.map((s,i)=>s.date!==ds?'':s.sport==='race'?`<div class="chip race"><b>🏁 RACE DAY</b><p>${esc(s.desc)}</p></div>`:`<details class="chip ${s.sport}"><summary><input type="checkbox" ${s.on?'checked':''} onclick="event.stopPropagation()" onchange="togS(${i},this.checked)"><b>${ICON[s.sport]} ${s.sport==='swim'&&s.yards?s.yards+SU:s.mins+' min'}</b> <span class="muted">${s.kind} · ${s.mins}m · ${s.tss} TSS${s.syncedAt?' · ✔ synced':''}</span></summary><p>${esc(s.desc)}</p>${blocks(s)}<div class="row" style="margin-top:8px"><button class="btn sm" onclick="syncOne(${i})">☁ ${s.syncedAt?'Re-sync':'Sync'} this workout</button><button class="btn alt sm" style="color:var(--bad)" onclick="delSession(${i})">🗑 Delete workout</button></div><details><summary class="small muted">intervals.icu workout text</summary><pre>${esc(s.text)}</pre></details></details>`).join('')||'<span class="muted">Rest</span>'}</div>`}).join('')}</div></div>${reasonCard(w)}`;
   updTotals();
 }
 function reasonCard(w){
@@ -1233,6 +1233,34 @@ async function pushSessions(idxs,all){
     items.forEach(s=>{s.eventId=map[s.eid]||null;s.syncedAt=Date.now()});if(all)w.oldIds=[];
     weeksLog[w.start]=w;store.set('tp_weeks',weeksLog);renderWeek();renderHistory();renderDue();
   }catch(e){alert('Sync failed: '+e.message)}
+}
+
+/* ---------- delete sessions / weeks ---------- */
+async function rmRemote(ids){ // remove synced events from intervals.icu; returns how many could not be removed
+  ids=ids.filter(Boolean);if(!ids.length)return 0;
+  if(!cfg.id||!cfg.key||(data&&data.demo))return ids.length;
+  let fail=0;for(const id of ids){try{await api(`/athlete/${cfg.id}/events/${id}`,{method:'DELETE'})}catch(e){fail++}}
+  return fail;
+}
+async function delSession(i){
+  const w=curWeek;if(!w)return;const s=w.sessions[i];if(!s)return;
+  const day=`${DN[(pd(s.date).getDay()+6)%7]} ${fmtDate(pd(s.date))}`;
+  if(!confirm(`Delete this ${s.sport} workout on ${day}?`+(s.eventId?'\n\nIt will also be removed from intervals.icu.':'')))return;
+  const fail=await rmRemote([s.eventId]);
+  w.sessions.splice(i,1);
+  if(w.reasoning&&w.reasoning.table){const j=w.reasoning.table.findIndex(r=>r.day===day&&r.title===s.title);if(j>=0)w.reasoning.table.splice(j,1)}
+  weeksLog[w.start]=w;store.set('tp_weeks',weeksLog);renderWeek();renderHistory();renderDue();
+  if(fail)alert("Deleted here, but it couldn't be removed from intervals.icu. Delete it there manually.");
+}
+async function delWeek(k){
+  const w=weeksLog[k];if(!w)return;
+  const ids=[...w.sessions.map(s=>s.eventId),...(w.oldIds||[])].filter(Boolean);
+  if(!confirm(`Delete the whole week of ${fmtDate(pd(k))} – ${fmtDate(addDays(pd(k),6))} (${w.sessions.length} sessions)?`+(ids.length?`\n\n${ids.length} synced workout${ids.length===1?'':'s'} will also be removed from intervals.icu.`:'')))return;
+  const fail=await rmRemote(ids);
+  delete weeksLog[k];store.set('tp_weeks',weeksLog);
+  if(curWeek&&curWeek.start===k)curWeek=null;
+  renderPlanTab();
+  if(fail)alert(`Deleted here, but ${fail} workout${fail===1?'':'s'} couldn't be removed from intervals.icu. Delete ${fail===1?'it':'them'} there manually.`);
 }
 const syncWeek=()=>pushSessions(curWeek.sessions.map((s,i)=>s.on?i:-1).filter(i=>i>=0),true);
 const syncOne=i=>pushSessions([i],false);
