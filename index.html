@@ -83,6 +83,9 @@ details.card>summary{cursor:pointer;font-weight:700}
 .tot{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 10px}
 .tot span{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:13px}
 .note{background:#8b5cf61a;border:1px solid #8b5cf655;border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:14px}
+.quote{flex:1 1 240px;min-width:200px;max-width:560px;text-align:center;font-size:13px;line-height:1.35;color:var(--mut);font-style:italic;transition:opacity .6s}
+.quote.out{opacity:0}.quote b{color:var(--tx);font-style:normal;font-weight:600}
+@media(prefers-reduced-motion:reduce){.quote{transition:none}}
 </style>
 </head>
 <body>
@@ -91,6 +94,8 @@ details.card>summary{cursor:pointer;font-weight:700}
     <span id="logo"></span>
     <div><h1>TriPulse</h1><small>Swim · Bike · Run</small></div>
   </div>
+  <div class="sp"></div>
+  <div id="quote" class="quote" title="Click for another quote" style="cursor:pointer"></div>
   <div class="sp"></div>
   <div id="status"><i></i><span>Not connected</span></div>
   <span id="cloudStat" class="small muted"></span>
@@ -1373,6 +1378,30 @@ fbUI();
 if(fbCfg)fbInit().catch(e=>cloudStatus('☁ '+e.message));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&cloudOn()&&Date.now()-lastPull>30000)cloudPull()});
 appReady=true;
+
+/* ---------- header motivational quote ---------- */
+const QUOTES=[
+ ['Run when you can, walk if you have to, crawl if you must; just never give up.','Dean Karnazes'],
+ ['It never gets easier, you just get faster.','Greg LeMond'],
+ ['The miracle isn\'t that I finished. The miracle is that I had the courage to start.','John Bingham'],
+ ['Ride as much or as little, as long or as short as you feel. But ride.','Eddy Merckx'],
+ ['Success is the sum of small efforts, repeated day in and day out.','Robert Collier'],
+ ['Hard work beats talent when talent doesn\'t work hard.','Tim Notke'],
+ ['Consistency beats intensity.'],['Trust the training.'],['One more lap. One more mile. One more watt.'],
+ ['The long run makes the racer.'],['Easy days easy, hard days hard.'],
+ ['Swim smooth, ride strong, run proud.'],['Fitness is built in the weeks nobody sees.'],
+ ['Show up tired. Leave stronger.'],['Small gains, stacked daily.'],['Race day is the victory lap for the training.'],
+ ['Patience is a training zone too.'],['Today\'s effort is next month\'s pace.'],
+ ['Discipline is choosing the session over the excuse.'],['Every stroke, pedal and step counts.'],
+ ['You don\'t have to be fast today. You have to be there.'],['Build the engine, then race the engine.']
+];
+let lastQ=-1;
+function showQuote(fade){
+  const el=$('#quote');if(!el)return;let i;do{i=Math.floor(Math.random()*QUOTES.length)}while(QUOTES.length>1&&i===lastQ);lastQ=i;
+  const [t,a]=QUOTES[i],set=()=>{el.innerHTML=`“${esc(t)}”${a?` <b>— ${esc(a)}</b>`:''}`;el.classList.remove('out')};
+  if(fade){el.classList.add('out');setTimeout(set,600)}else set();
+}
+showQuote(false);setInterval(()=>showQuote(true),45000);$('#quote').onclick=()=>showQuote(true);
 </script>
 </body>
 </html>
