@@ -721,9 +721,10 @@ function renderDash(){
     ${k('🚴 Cycling eFTP · 42d',ST.thr.ftp?Math.round(ST.thr.ftp)+' W':'—',ST.thr.ftp?ST.thr.ftpSrc:(data.curveErr&&data.curveErr.power?'power curve unavailable ('+data.curveErr.power+')':data.curveInfo&&data.curveInfo.power?'unreadable – '+data.curveInfo.power:'reconnect to load 42-day power curve'))}
   </div>
   ${progBlock()}
+  ${trendBlock()}
   ${readyBlock()}
   ${raceReadyBlock()}
-  ${trendBlock()}  ${predBlock()}
+  ${predBlock()}
   <div class="grid two">
     <div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
     <div class="card"><h2>4-week breakdown</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th><th>Load</th></tr>
