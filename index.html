@@ -27,7 +27,7 @@ main{padding:20px 22px 60px;max-width:1200px;margin:0 auto}
 .card h2{margin:0 0 12px;font-size:16px}
 .grid{display:grid;gap:14px}
 .kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
-.kpi{background:var(--card2);border-radius:14px;padding:14px;border:1px solid var(--line)}
+.kpi{background:var(--card);border-radius:14px;padding:14px;border:1px solid var(--line)}
 .kpi b{font-size:26px;display:block;line-height:1.1}.kpi span{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:1px}
 .kpi em{font-style:normal;font-size:12px}
 .two{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
@@ -714,11 +714,6 @@ function renderDash(){
     ${k('Fitness (CTL)',ST.ctl!=null?ST.ctl.toFixed(0):'—','from intervals.icu')}
     ${k('Fatigue (ATL)',ST.atl!=null?ST.atl.toFixed(0):'—','from intervals.icu')}
     ${k('Form (TSB)',ST.form!=null?(ST.form>0?'+':'')+ST.form.toFixed(0):'—',ST.form!=null?'from intervals.icu':'not returned by intervals.icu')}
-  </div>
-  <div class="grid kpis" style="margin-bottom:18px">
-    ${(()=>{const sc=swimCssNow();return k('🏊 Swim CSS pace'+(sc&&sc.curve?' · 42d':''),sc?fmtSwim(sc.v)+' /100y':'—',sc?sc.src:'no swim curve or swim threshold in intervals.icu')})()}
-    ${k('🏃 Run CSS pace · 42d',ST.thr.rp?fmtPace(ST.thr.rp*1.609344)+' /mi':'—',ST.thr.rp?ST.thr.rpSrc:(data.curveErr&&data.curveErr.pace?'pace curve unavailable ('+data.curveErr.pace+')':data.curveInfo&&data.curveInfo.pace?'unreadable – '+data.curveInfo.pace:'reconnect to load 42-day pace curve'))}
-    ${k('🚴 Cycling eFTP · 42d',ST.thr.ftp?Math.round(ST.thr.ftp)+' W':'—',ST.thr.ftp?ST.thr.ftpSrc:(data.curveErr&&data.curveErr.power?'power curve unavailable ('+data.curveErr.power+')':data.curveInfo&&data.curveInfo.power?'unreadable – '+data.curveInfo.power:'reconnect to load 42-day power curve'))}
   </div>
   ${progBlock()}
   ${trendBlock()}
