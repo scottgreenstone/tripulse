@@ -8,8 +8,8 @@
 <style>
 :root{--bg:#0b1020;--card:#141b30;--card2:#1b2440;--line:#27325a;--tx:#e8ecff;--mut:#8b97c4;--acc:#22d3ee;--acc2:#8b5cf6;--swim:#38bdf8;--bike:#f59e0b;--run:#34d399;--oth:#a78bfa;--bad:#fb7185;--ok:#34d399}
 *{box-sizing:border-box}
-body{margin:0;background:var(--card);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#141b30ee;backdrop-filter:blur(8px);z-index:5;flex-wrap:wrap}
+body{margin:0;background:radial-gradient(1200px 600px at 80% -10%,#1d1b4b55,transparent),var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0b1020ee;backdrop-filter:blur(8px);z-index:5;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:10px}
 .brand svg{width:42px;height:42px;filter:drop-shadow(0 4px 12px #22d3ee55)}
 .brand h1{margin:0;font-size:24px;letter-spacing:.5px;font-weight:800;background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -401,7 +401,7 @@ function demoData(){
     mk(addDays(base,1),'Swim',Math.round(45*f),2.4,135,45);mk(addDays(base,3),'Swim',Math.round(50*f),2.4,138,50);
     mk(addDays(base,2),'Ride',Math.round(70*f),28,142,75);mk(addDays(base,5),'Ride',Math.round(150*f),27,138,130);
     mk(addDays(base,1),'Run',Math.round(35*f),10.5,148,40);mk(addDays(base,3),'Run',Math.round(45*f),11,152,55);mk(addDays(base,6),'Run',Math.round(75*f),10,145,85)}
-  const well=[];for(let i=28;i>=0;i--)well.push({id:ymd(addDays(new Date(),-i)),ctl:38+(28-i)*.35,atl:42+Math.sin(i)*6+(28-i)*.4,rampRate:2.1,hrv:62+Math.sin(i/3)*6-(i<7?0:1),restingHR:52+Math.cos(i/4)*2+(i<7?-1:0),sleepScore:Math.round(78+Math.sin(i/2)*7),weight:+(75.2-(28-i)*.02+Math.sin(i)*.25).toFixed(1),bodyFat:+(17.6-(28-i)*.015+Math.cos(i/2)*.15).toFixed(1)});
+  const well=[];for(let i=28;i>=0;i--)well.push({id:ymd(addDays(new Date(),-i)),ctl:38+(28-i)*.35,atl:42+Math.sin(i)*6+(28-i)*.4,rampRate:2.1,hrv:62+Math.sin(i/3)*6-(i<7?0:1),restingHR:52+Math.cos(i/4)*2+(i<7?-1:0),sleepScore:Math.round(78+Math.sin(i/2)*7)});
   data={acts:acts.filter(a=>pd(a.start_date_local)<=new Date()),well,settings:[{types:['Ride','VirtualRide'],ftp:235},{types:['Run'],threshold_pace:3.5},{types:['Swim'],threshold_pace:1.15}],eftp:{v:238,src:'42-day power curve'},runCS:{v:3.6,src:'42-day pace curve'},swimCS:{v:1.15,src:'42-day pace curve'},summary:[{date:ymd(new Date()),fitness:50,fatigue:55,form:-5}],name:'Demo athlete',demo:true,hist:demoHist(),at:Date.now()};
   store.set('tp_data',data);setStatus('Demo data','ok');renderAll();
 }
@@ -499,14 +499,7 @@ function weightCard(){
   const dd=d!=null?d:(v.length>1?last-v[0]:0),col='#22d3ee',arrow=dd>0?'▲':dd<0?'▼':'→';
   return `<div class="kpi"><span>Weight · 28-day trend</span><b>${last.toFixed(1)}<small style="font-size:13px"> lb</small></b>${spark(v,col)}<em style="color:${col}">${arrow} 7-day avg ${a7.toFixed(1)}${d!=null?` (${d>0?'+':''}${d.toFixed(1)} vs prior week)`:''}</em></div>`;
 }
-function bodyFatCard(){
-  const v=wseries('bodyFat').slice(-28);
-  if(!v.length)return `<div class="kpi"><span>Body fat</span><b>—</b><em class="muted">no body fat data synced from intervals.icu</em></div>`;
-  const last=v[v.length-1],a7=avg(v.slice(-7)),p7=v.length>=10?avg(v.slice(-14,-7)):null,d=p7!=null?a7-p7:null;
-  const dd=d!=null?d:(v.length>1?last-v[0]:0),col='#a78bfa',arrow=dd>0?'▲':dd<0?'▼':'→';
-  return `<div class="kpi"><span>Body fat · 28-day trend</span><b>${last.toFixed(1)}<small style="font-size:13px"> %</small></b>${spark(v,col)}<em style="color:${col}">${arrow} 7-day avg ${a7.toFixed(1)}${d!=null?` (${d>0?'+':''}${d.toFixed(1)} vs prior week)`:''}</em></div>`;
-}
-const trendBlock=()=>`<div class="grid kpis" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${trendCard('HRV','hrv','ms',true)}${trendCard('Resting HR','restingHR','bpm',false)}${trendCard('Sleep score','sleepScore','',true)}${weightCard()}${bodyFatCard()}</div>
+const trendBlock=()=>`<div class="grid kpis" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${trendCard('HRV','hrv','ms',true)}${trendCard('Resting HR','restingHR','bpm',false)}${trendCard('Sleep score','sleepScore','',true)}${weightCard()}</div>
 `;
 /* ---------- race predictions ---------- */
 let wLb=store.get('tp_wlb',165);
@@ -715,11 +708,15 @@ function renderDash(){
     ${k('Fatigue (ATL)',ST.atl!=null?ST.atl.toFixed(0):'—','from intervals.icu')}
     ${k('Form (TSB)',ST.form!=null?(ST.form>0?'+':'')+ST.form.toFixed(0):'—',ST.form!=null?'from intervals.icu':'not returned by intervals.icu')}
   </div>
+  <div class="grid kpis" style="margin-bottom:18px">
+    ${(()=>{const sc=swimCssNow();return k('🏊 Swim CSS pace'+(sc&&sc.curve?' · 42d':''),sc?fmtSwim(sc.v)+' /100y':'—',sc?sc.src:'no swim curve or swim threshold in intervals.icu')})()}
+    ${k('🏃 Run CSS pace · 42d',ST.thr.rp?fmtPace(ST.thr.rp*1.609344)+' /mi':'—',ST.thr.rp?ST.thr.rpSrc:(data.curveErr&&data.curveErr.pace?'pace curve unavailable ('+data.curveErr.pace+')':data.curveInfo&&data.curveInfo.pace?'unreadable – '+data.curveInfo.pace:'reconnect to load 42-day pace curve'))}
+    ${k('🚴 Cycling eFTP · 42d',ST.thr.ftp?Math.round(ST.thr.ftp)+' W':'—',ST.thr.ftp?ST.thr.ftpSrc:(data.curveErr&&data.curveErr.power?'power curve unavailable ('+data.curveErr.power+')':data.curveInfo&&data.curveInfo.power?'unreadable – '+data.curveInfo.power:'reconnect to load 42-day power curve'))}
+  </div>
   ${progBlock()}
-  ${trendBlock()}
   ${readyBlock()}
   ${raceReadyBlock()}
-  ${predBlock()}
+  ${trendBlock()}  ${predBlock()}
   <div class="grid two">
     <div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
     <div class="card"><h2>4-week breakdown</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th><th>Load</th></tr>
