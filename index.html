@@ -8,8 +8,8 @@
 <style>
 :root{--bg:#0b1020;--card:#141b30;--card2:#1b2440;--line:#27325a;--tx:#e8ecff;--mut:#8b97c4;--acc:#22d3ee;--acc2:#8b5cf6;--swim:#38bdf8;--bike:#f59e0b;--run:#34d399;--oth:#a78bfa;--bad:#fb7185;--ok:#34d399}
 *{box-sizing:border-box}
-body{margin:0;background:radial-gradient(1200px 600px at 80% -10%,#1d1b4b55,transparent),var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0b1020ee;backdrop-filter:blur(8px);z-index:5;flex-wrap:wrap}
+body{margin:0;background:var(--card);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#141b30ee;backdrop-filter:blur(8px);z-index:5;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:10px}
 .brand svg{width:42px;height:42px;filter:drop-shadow(0 4px 12px #22d3ee55)}
 .brand h1{margin:0;font-size:24px;letter-spacing:.5px;font-weight:800;background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -390,18 +390,46 @@ function progBlock(){
   return `<div class="grid three">
     ${progCard('🏊 Swim CSS progression',swim,{col:'#38bdf8',fmt:v=>fmtSwim(v)+' /100y',axis:fmtSwim,invert:true,id:'Swim CSS'},(a,b)=>{const d=Math.abs(b-a);return{good:b<=a,txt:(d<.05?'no change':d.toFixed(1)+' sec/100y '+(b<=a?'faster':'slower'))}})}
     ${progCard('🏃 Run critical pace progression',run,{col:COL.run,fmt:v=>fmtPace(v)+' /mi',invert:true,id:'Run critical pace'},(a,b)=>{const sec=Math.abs(Math.round((b-a)*60));return{good:b<=a,txt:sec+' sec/mi '+(b<=a?'faster':'slower')}})}
+    ${decCard()}
     ${progCard('🚴 Cycling eFTP progression',bike,{col:COL.bike,fmt:v=>Math.round(v)+' W',invert:false,id:'Cycling eFTP'},(a,b)=>({good:b>=a,txt:(b>=a?'+':'')+Math.round(b-a)+' W'}))}
   </div>`;
 }
 
+/* ---------- running heart decoupling (aerobic drift) ---------- */
+function decouplingData(){ // runs of 30+ min in the last 42 days that intervals.icu calculated decoupling for
+  const cut=addDays(new Date(),-42);
+  const pts=((data&&data.acts)||[]).filter(a=>/Run/.test(a.type||'')&&a.decoupling!=null&&isFinite(a.decoupling)&&Math.abs(a.decoupling)<50&&(a.moving_time||0)>=1800&&a.start_date_local&&pd(a.start_date_local)>=cut)
+    .map(a=>({d:a.start_date_local.slice(0,10),v:+a.decoupling,n:a.name||'Run'})).sort((x,y)=>x.d<y.d?-1:1);
+  return{pts,avg:pts.length?pts.reduce((t,p)=>t+p.v,0)/pts.length:null};
+}
+function decChart(pts,avg,col){
+  const W=560,H=210,pl=48,pr=18,pt=16,pb=28,end=new Date(),t0=addDays(end,-42).getTime(),span=end.getTime()-t0;
+  let mn=Math.min(0,...pts.map(p=>p.v))-1,mx=Math.max(10,...pts.map(p=>p.v))+1; // always show 0% to 10% so the good/ok/high zones are visible
+  const X=d=>pl+Math.min(1,Math.max(0,(pd(d).getTime()-t0)/span))*(W-pl-pr),Y=v=>pt+(v-mn)/(mx-mn)*(H-pt-pb); // less drift = higher
+  let g='';
+  for(let i=0;i<=3;i++){const v=mn+(mx-mn)*i/3,y=Y(v);g+=`<line x1="${pl}" x2="${W-pr}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#27325a"/><text x="${pl-6}" y="${(y+4).toFixed(1)}" fill="#8b97c4" font-size="11" text-anchor="end">${v.toFixed(0)}%</text>`}
+  [[5,'#34d399'],[10,'#fbbf24']].forEach(([v,c])=>{const y=Y(v).toFixed(1);g+=`<line x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}" stroke="${c}" stroke-dasharray="3 5" opacity=".55"/><text x="${W-pr}" y="${(Y(v)-4).toFixed(1)}" fill="${c}" font-size="10" text-anchor="end" opacity=".8">${v}%</text>`});
+  if(pts.length>1)g+=`<path d="${pts.map((p,i)=>`${i?'L':'M'}${X(p.d).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="1.5" opacity=".5"/>`;
+  const ya=Y(avg).toFixed(1);
+  g+=`<line x1="${pl}" x2="${W-pr}" y1="${ya}" y2="${ya}" stroke="${col}" stroke-width="2" stroke-dasharray="7 4"/><text x="${pl+6}" y="${(Y(avg)-6).toFixed(1)}" fill="${col}" font-size="11" font-weight="700">42-day avg ${avg.toFixed(1)}%</text>`;
+  pts.forEach(p=>{g+=`<circle cx="${X(p.d).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="4.5" fill="${col}" stroke="#141b30" stroke-width="1.5"><title>${fmtDate(pd(p.d))} · ${esc(p.n)}: ${p.v.toFixed(1)}%</title></circle>`});
+  [[addDays(end,-42),'start'],[addDays(end,-21),'middle'],[end,'end']].forEach(([d,a])=>{const x=pl+(a==='start'?0:a==='middle'?.5:1)*(W-pl-pr);g+=`<text x="${x.toFixed(1)}" y="${H-8}" fill="#8b97c4" font-size="11" text-anchor="${a}">${fmtDate(d)}</text>`});
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Run heart decoupling">${g}</svg>`;
+}
+function decCard(){
+  const {pts,avg}=decouplingData(),col='#f472b6';
+  if(avg==null)return `<div class="card"><h2>❤️ Run heart decoupling</h2><p class="small muted" style="margin:0">No runs with decoupling data in the last 42 days. intervals.icu calculates it for steady runs of 30+ minutes that have both heart rate and pace recorded.</p></div>`;
+  const lv=avg<5?['Strong aerobic efficiency','var(--ok)']:avg<10?['Moderate drift','#fbbf24']:['High drift – aerobic base needs work','var(--bad)'];
+  return `<div class="card"><h2>❤️ Run heart decoupling</h2><div style="margin-bottom:6px"><b style="font-size:24px">${avg.toFixed(1)} %</b> <span class="small" style="color:${lv[1]}">${lv[0]}</span> <span class="small muted">· 42-day avg, ${pts.length} run${pts.length===1?'':'s'}</span></div>${decChart(pts,avg,col)}<div class="small muted">Each dot is one run (30+ min). Pace-to-heart-rate drift: under 5% is strong, over 10% means the aerobic base is the limiter. Less drift is higher on this chart.</div></div>`;
+}
 function demoData(){
   const acts=[],t=new Date();t.setHours(7,0,0,0);
-  const mk=(d,type,min,spd,hr,load)=>acts.push({type,start_date_local:ymd(d)+'T07:00:00',moving_time:min*60,distance:Math.round(min/60*spd*1000),icu_training_load:load,average_heartrate:hr,average_watts:type==='Ride'?Math.round(185+min/10):undefined,name:type});
+  const mk=(d,type,min,spd,hr,load,dec)=>acts.push({type,start_date_local:ymd(d)+'T07:00:00',moving_time:min*60,distance:Math.round(min/60*spd*1000),icu_training_load:load,average_heartrate:hr,decoupling:dec,average_watts:type==='Ride'?Math.round(185+min/10):undefined,name:type});
   for(let w=0;w<4;w++){const f=1+w*.07,base=addDays(monday(t),-7*(3-w));
     mk(addDays(base,1),'Swim',Math.round(45*f),2.4,135,45);mk(addDays(base,3),'Swim',Math.round(50*f),2.4,138,50);
     mk(addDays(base,2),'Ride',Math.round(70*f),28,142,75);mk(addDays(base,5),'Ride',Math.round(150*f),27,138,130);
-    mk(addDays(base,1),'Run',Math.round(35*f),10.5,148,40);mk(addDays(base,3),'Run',Math.round(45*f),11,152,55);mk(addDays(base,6),'Run',Math.round(75*f),10,145,85)}
-  const well=[];for(let i=28;i>=0;i--)well.push({id:ymd(addDays(new Date(),-i)),ctl:38+(28-i)*.35,atl:42+Math.sin(i)*6+(28-i)*.4,rampRate:2.1,hrv:62+Math.sin(i/3)*6-(i<7?0:1),restingHR:52+Math.cos(i/4)*2+(i<7?-1:0),sleepScore:Math.round(78+Math.sin(i/2)*7)});
+    mk(addDays(base,1),'Run',Math.round(35*f),10.5,148,40);mk(addDays(base,3),'Run',Math.round(45*f),11,152,55,+(4.8-w*.4+Math.sin(w)*.5).toFixed(1));mk(addDays(base,6),'Run',Math.round(75*f),10,145,85,+(7.6-w*.9+Math.cos(w)*.6).toFixed(1))}
+  const well=[];for(let i=28;i>=0;i--)well.push({id:ymd(addDays(new Date(),-i)),ctl:38+(28-i)*.35,atl:42+Math.sin(i)*6+(28-i)*.4,rampRate:2.1,hrv:62+Math.sin(i/3)*6-(i<7?0:1),restingHR:52+Math.cos(i/4)*2+(i<7?-1:0),sleepScore:Math.round(78+Math.sin(i/2)*7),weight:+(75.2-(28-i)*.02+Math.sin(i)*.25).toFixed(1),bodyFat:+(17.6-(28-i)*.015+Math.cos(i/2)*.15).toFixed(1)});
   data={acts:acts.filter(a=>pd(a.start_date_local)<=new Date()),well,settings:[{types:['Ride','VirtualRide'],ftp:235},{types:['Run'],threshold_pace:3.5},{types:['Swim'],threshold_pace:1.15}],eftp:{v:238,src:'42-day power curve'},runCS:{v:3.6,src:'42-day pace curve'},swimCS:{v:1.15,src:'42-day pace curve'},summary:[{date:ymd(new Date()),fitness:50,fatigue:55,form:-5}],name:'Demo athlete',demo:true,hist:demoHist(),at:Date.now()};
   store.set('tp_data',data);setStatus('Demo data','ok');renderAll();
 }
@@ -499,7 +527,14 @@ function weightCard(){
   const dd=d!=null?d:(v.length>1?last-v[0]:0),col='#22d3ee',arrow=dd>0?'▲':dd<0?'▼':'→';
   return `<div class="kpi"><span>Weight · 28-day trend</span><b>${last.toFixed(1)}<small style="font-size:13px"> lb</small></b>${spark(v,col)}<em style="color:${col}">${arrow} 7-day avg ${a7.toFixed(1)}${d!=null?` (${d>0?'+':''}${d.toFixed(1)} vs prior week)`:''}</em></div>`;
 }
-const trendBlock=()=>`<div class="grid kpis" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${trendCard('HRV','hrv','ms',true)}${trendCard('Resting HR','restingHR','bpm',false)}${trendCard('Sleep score','sleepScore','',true)}${weightCard()}</div>
+function bodyFatCard(){
+  const v=wseries('bodyFat').slice(-28);
+  if(!v.length)return `<div class="kpi"><span>Body fat</span><b>—</b><em class="muted">no body fat data synced from intervals.icu</em></div>`;
+  const last=v[v.length-1],a7=avg(v.slice(-7)),p7=v.length>=10?avg(v.slice(-14,-7)):null,d=p7!=null?a7-p7:null;
+  const dd=d!=null?d:(v.length>1?last-v[0]:0),col='#a78bfa',arrow=dd>0?'▲':dd<0?'▼':'→';
+  return `<div class="kpi"><span>Body fat · 28-day trend</span><b>${last.toFixed(1)}<small style="font-size:13px"> %</small></b>${spark(v,col)}<em style="color:${col}">${arrow} 7-day avg ${a7.toFixed(1)}${d!=null?` (${d>0?'+':''}${d.toFixed(1)} vs prior week)`:''}</em></div>`;
+}
+const trendBlock=()=>`<div class="grid kpis" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${trendCard('HRV','hrv','ms',true)}${trendCard('Resting HR','restingHR','bpm',false)}${trendCard('Sleep score','sleepScore','',true)}${weightCard()}${bodyFatCard()}</div>
 `;
 /* ---------- race predictions ---------- */
 let wLb=store.get('tp_wlb',165);
@@ -708,15 +743,11 @@ function renderDash(){
     ${k('Fatigue (ATL)',ST.atl!=null?ST.atl.toFixed(0):'—','from intervals.icu')}
     ${k('Form (TSB)',ST.form!=null?(ST.form>0?'+':'')+ST.form.toFixed(0):'—',ST.form!=null?'from intervals.icu':'not returned by intervals.icu')}
   </div>
-  <div class="grid kpis" style="margin-bottom:18px">
-    ${(()=>{const sc=swimCssNow();return k('🏊 Swim CSS pace'+(sc&&sc.curve?' · 42d':''),sc?fmtSwim(sc.v)+' /100y':'—',sc?sc.src:'no swim curve or swim threshold in intervals.icu')})()}
-    ${k('🏃 Run CSS pace · 42d',ST.thr.rp?fmtPace(ST.thr.rp*1.609344)+' /mi':'—',ST.thr.rp?ST.thr.rpSrc:(data.curveErr&&data.curveErr.pace?'pace curve unavailable ('+data.curveErr.pace+')':data.curveInfo&&data.curveInfo.pace?'unreadable – '+data.curveInfo.pace:'reconnect to load 42-day pace curve'))}
-    ${k('🚴 Cycling eFTP · 42d',ST.thr.ftp?Math.round(ST.thr.ftp)+' W':'—',ST.thr.ftp?ST.thr.ftpSrc:(data.curveErr&&data.curveErr.power?'power curve unavailable ('+data.curveErr.power+')':data.curveInfo&&data.curveInfo.power?'unreadable – '+data.curveInfo.power:'reconnect to load 42-day power curve'))}
-  </div>
   ${progBlock()}
+  ${trendBlock()}
   ${readyBlock()}
   ${raceReadyBlock()}
-  ${trendBlock()}  ${predBlock()}
+  ${predBlock()}
   <div class="grid two">
     <div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
     <div class="card"><h2>4-week breakdown</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th><th>Load</th></tr>
