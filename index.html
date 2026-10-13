@@ -390,16 +390,18 @@ function progBlock(){
   return `<div class="grid three">
     ${progCard('🏊 Swim CSS progression',swim,{col:'#38bdf8',fmt:v=>fmtSwim(v)+' /100y',axis:fmtSwim,invert:true,id:'Swim CSS'},(a,b)=>{const d=Math.abs(b-a);return{good:b<=a,txt:(d<.05?'no change':d.toFixed(1)+' sec/100y '+(b<=a?'faster':'slower'))}})}
     ${progCard('🏃 Run critical pace progression',run,{col:COL.run,fmt:v=>fmtPace(v)+' /mi',invert:true,id:'Run critical pace'},(a,b)=>{const sec=Math.abs(Math.round((b-a)*60));return{good:b<=a,txt:sec+' sec/mi '+(b<=a?'faster':'slower')}})}
-    ${decCard()}
+    ${decCard('run')}
     ${progCard('🚴 Cycling eFTP progression',bike,{col:COL.bike,fmt:v=>Math.round(v)+' W',invert:false,id:'Cycling eFTP'},(a,b)=>({good:b>=a,txt:(b>=a?'+':'')+Math.round(b-a)+' W'}))}
+    ${decCard('bike')}
   </div>`;
 }
 
 /* ---------- running heart decoupling (aerobic drift) ---------- */
-function decouplingData(){ // runs of 30+ min in the last 42 days that intervals.icu calculated decoupling for
+const DEC={run:{re:/Run/,title:'Run heart decoupling',what:'run',pair:'Pace-to-heart-rate',col:'#f472b6'},bike:{re:/Ride/,title:'Cycling heart decoupling',what:'ride',pair:'Power-to-heart-rate',col:'#fb923c'}};
+function decouplingData(kind){ // runs/rides of 30+ min in the last 42 days that intervals.icu calculated decoupling for
   const cut=addDays(new Date(),-42);
-  const pts=((data&&data.acts)||[]).filter(a=>/Run/.test(a.type||'')&&a.decoupling!=null&&isFinite(a.decoupling)&&Math.abs(a.decoupling)<50&&(a.moving_time||0)>=1800&&a.start_date_local&&pd(a.start_date_local)>=cut)
-    .map(a=>({d:a.start_date_local.slice(0,10),v:+a.decoupling,n:a.name||'Run'})).sort((x,y)=>x.d<y.d?-1:1);
+  const pts=((data&&data.acts)||[]).filter(a=>DEC[kind].re.test(a.type||'')&&a.decoupling!=null&&isFinite(a.decoupling)&&Math.abs(a.decoupling)<50&&(a.moving_time||0)>=1800&&a.start_date_local&&pd(a.start_date_local)>=cut)
+    .map(a=>({d:a.start_date_local.slice(0,10),v:+a.decoupling,n:a.name||DEC[kind].title})).sort((x,y)=>x.d<y.d?-1:1);
   return{pts,avg:pts.length?pts.reduce((t,p)=>t+p.v,0)/pts.length:null};
 }
 function decChart(pts,avg,col){
@@ -414,20 +416,20 @@ function decChart(pts,avg,col){
   g+=`<line x1="${pl}" x2="${W-pr}" y1="${ya}" y2="${ya}" stroke="${col}" stroke-width="2" stroke-dasharray="7 4"/><text x="${pl+6}" y="${(Y(avg)-6).toFixed(1)}" fill="${col}" font-size="11" font-weight="700">42-day avg ${avg.toFixed(1)}%</text>`;
   pts.forEach(p=>{g+=`<circle cx="${X(p.d).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="4.5" fill="${col}" stroke="#141b30" stroke-width="1.5"><title>${fmtDate(pd(p.d))} · ${esc(p.n)}: ${p.v.toFixed(1)}%</title></circle>`});
   [[addDays(end,-42),'start'],[addDays(end,-21),'middle'],[end,'end']].forEach(([d,a])=>{const x=pl+(a==='start'?0:a==='middle'?.5:1)*(W-pl-pr);g+=`<text x="${x.toFixed(1)}" y="${H-8}" fill="#8b97c4" font-size="11" text-anchor="${a}">${fmtDate(d)}</text>`});
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Run heart decoupling">${g}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Heart decoupling">${g}</svg>`;
 }
-function decCard(){
-  const {pts,avg}=decouplingData(),col='#f472b6';
-  if(avg==null)return `<div class="card"><h2>❤️ Run heart decoupling</h2><p class="small muted" style="margin:0">No runs with decoupling data in the last 42 days. intervals.icu calculates it for steady runs of 30+ minutes that have both heart rate and pace recorded.</p></div>`;
+function decCard(kind){
+  const D=DEC[kind],{pts,avg}=decouplingData(kind),col=D.col;
+  if(avg==null)return `<div class="card"><h2>❤️ ${D.title}</h2><p class="small muted" style="margin:0">No ${D.what}s with decoupling data in the last 42 days. intervals.icu calculates it for steady ${D.what}s of 30+ minutes that have both heart rate and ${kind==='run'?'pace':'power'} recorded.</p></div>`;
   const lv=avg<5?['Strong aerobic efficiency','var(--ok)']:avg<10?['Moderate drift','#fbbf24']:['High drift – aerobic base needs work','var(--bad)'];
-  return `<div class="card"><h2>❤️ Run heart decoupling</h2><div style="margin-bottom:6px"><b style="font-size:24px">${avg.toFixed(1)} %</b> <span class="small" style="color:${lv[1]}">${lv[0]}</span> <span class="small muted">· 42-day avg, ${pts.length} run${pts.length===1?'':'s'}</span></div>${decChart(pts,avg,col)}<div class="small muted">Each dot is one run (30+ min). Pace-to-heart-rate drift: under 5% is strong, over 10% means the aerobic base is the limiter. Less drift is higher on this chart.</div></div>`;
+  return `<div class="card"><h2>❤️ ${D.title}</h2><div style="margin-bottom:6px"><b style="font-size:24px">${avg.toFixed(1)} %</b> <span class="small" style="color:${lv[1]}">${lv[0]}</span> <span class="small muted">· 42-day avg, ${pts.length} ${D.what}${pts.length===1?'':'s'}</span></div>${decChart(pts,avg,col)}<div class="small muted">Each dot is one ${D.what} (30+ min). ${D.pair} drift: under 5% is strong, over 10% means the aerobic base is the limiter. Less drift is higher on this chart.</div></div>`;
 }
 function demoData(){
   const acts=[],t=new Date();t.setHours(7,0,0,0);
   const mk=(d,type,min,spd,hr,load,dec)=>acts.push({type,start_date_local:ymd(d)+'T07:00:00',moving_time:min*60,distance:Math.round(min/60*spd*1000),icu_training_load:load,average_heartrate:hr,decoupling:dec,average_watts:type==='Ride'?Math.round(185+min/10):undefined,name:type});
   for(let w=0;w<4;w++){const f=1+w*.07,base=addDays(monday(t),-7*(3-w));
     mk(addDays(base,1),'Swim',Math.round(45*f),2.4,135,45);mk(addDays(base,3),'Swim',Math.round(50*f),2.4,138,50);
-    mk(addDays(base,2),'Ride',Math.round(70*f),28,142,75);mk(addDays(base,5),'Ride',Math.round(150*f),27,138,130);
+    mk(addDays(base,2),'Ride',Math.round(70*f),28,142,75,+(4.4-w*.3+Math.sin(w+1)*.4).toFixed(1));mk(addDays(base,5),'Ride',Math.round(150*f),27,138,130,+(6.8-w*.7+Math.cos(w+1)*.5).toFixed(1));
     mk(addDays(base,1),'Run',Math.round(35*f),10.5,148,40);mk(addDays(base,3),'Run',Math.round(45*f),11,152,55,+(4.8-w*.4+Math.sin(w)*.5).toFixed(1));mk(addDays(base,6),'Run',Math.round(75*f),10,145,85,+(7.6-w*.9+Math.cos(w)*.6).toFixed(1))}
   const well=[];for(let i=28;i>=0;i--)well.push({id:ymd(addDays(new Date(),-i)),ctl:38+(28-i)*.35,atl:42+Math.sin(i)*6+(28-i)*.4,rampRate:2.1,hrv:62+Math.sin(i/3)*6-(i<7?0:1),restingHR:52+Math.cos(i/4)*2+(i<7?-1:0),sleepScore:Math.round(78+Math.sin(i/2)*7),weight:+(75.2-(28-i)*.02+Math.sin(i)*.25).toFixed(1),bodyFat:+(17.6-(28-i)*.015+Math.cos(i/2)*.15).toFixed(1)});
   data={acts:acts.filter(a=>pd(a.start_date_local)<=new Date()),well,settings:[{types:['Ride','VirtualRide'],ftp:235},{types:['Run'],threshold_pace:3.5},{types:['Swim'],threshold_pace:1.15}],eftp:{v:238,src:'42-day power curve'},runCS:{v:3.6,src:'42-day pace curve'},swimCS:{v:1.15,src:'42-day pace curve'},summary:[{date:ymd(new Date()),fitness:50,fatigue:55,form:-5}],name:'Demo athlete',demo:true,hist:demoHist(),at:Date.now()};
