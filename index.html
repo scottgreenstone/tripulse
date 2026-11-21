@@ -89,6 +89,7 @@ details.card>summary{cursor:pointer;font-weight:700}
 @media(prefers-reduced-motion:reduce){.quote{transition:none}}
 .lg{display:inline-flex;align-items:center;gap:6px;margin-right:18px;font-weight:600;font-size:13px}.lg i{width:18px;height:3px;border-radius:2px;display:inline-block}
 .tdays{overflow-x:auto}.tdays table{width:auto;min-width:420px}.tdays th,.tdays td{text-align:center;padding:6px 10px}.tdays td:first-child,.tdays th:first-child{text-align:left}.tdays input{width:auto}
+.rrg{display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center}@media(max-width:560px){.rrg{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -151,6 +152,8 @@ details.card>summary{cursor:pointer;font-weight:700}
         <div><label>Long bike day</label><select id="c_long"><option value="5" selected>Saturday</option><option value="6">Sunday</option></select></div>
         <div><label>Long run day</label><select id="c_longrun"><option value="6" selected>Sunday</option><option value="5">Saturday</option></select></div>
         <div><label>Strength &amp; core days</label><select id="c_str"><option value="3" selected>3 days</option><option value="4">4 days</option></select></div>
+        <div><label>Brick workout (bike → run)</label><select id="c_brick"><option value="0">No brick this week</option><option value="1">Yes, include one</option></select></div>
+        <div><label>Brick day</label><select id="c_brickday"><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5" selected>Saturday</option><option value="6">Sunday</option></select></div>
         <div><label>Pool length</label><select id="c_pool"><option value="y">25 yards</option><option value="m">25 meters</option></select></div>
       </div>
       <label style="margin-top:14px">Any specific focus this week? (pick none, one or several)</label>
@@ -723,19 +726,18 @@ function raceReady(r){
   const pr=predictRace(r);
   return{r,days,weeks,score,label,comps,gap,pred:pr?pr.t:null,predAdj:pr?pr.adj:'',predLegs:pr?pr.legs||'':''};
 }
-function raceReadyBlock(){
-  const rs=racesList().map(raceReady).filter(Boolean).slice(0,4);
-  if(!rs.length)return `<div class="card"><h2>🏁 Race readiness</h2><p class="muted small" style="margin:0">No upcoming races. Add a race on the Goals tab to see how ready you are.</p></div>`;
-  const arc=188.5;
-  return `<div class="card"><h2>🏁 Race readiness</h2>`+rs.map(x=>{
-    if(x.noData)return `<div class="goal"><h3 style="margin:0"><span class="tag r">RACE ${esc(x.r.prio)}</span> ${esc(x.r.name)} <span class="muted small" style="font-weight:400">${DIST[x.r.dist].n} · ${esc(fmtD(x.r.start))} · ${x.days} days</span></h3><div class="small muted">Needs your fitness (CTL) from intervals.icu to score readiness.</div></div>`;
-    const col=rrCol(x.score),wk=road&&road.weeks.find(w=>w.start<=ymd(new Date())&&ymd(addDays(pd(w.start),6))>=ymd(new Date()));
-    return `<div class="goal" style="display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center">
-     <div style="text-align:center"><svg viewBox="0 0 150 92" style="width:150px"><path d="M15 80 A60 60 0 0 1 135 80" stroke="#27325a" stroke-width="13" fill="none" stroke-linecap="round"/><path d="M15 80 A60 60 0 0 1 135 80" stroke="${col}" stroke-width="13" fill="none" stroke-linecap="round" stroke-dasharray="${(x.score/100*arc).toFixed(1)} ${arc}"/><text x="75" y="72" text-anchor="middle" font-size="30" font-weight="800" fill="#e8ecff">${x.score}</text><text x="75" y="90" text-anchor="middle" font-size="11" font-weight="700" fill="${col}">${x.label.toUpperCase()}</text></svg></div>
-     <div><h3 style="margin:0 0 4px"><span class="tag r">RACE ${esc(x.r.prio)}</span> ${esc(x.r.name)} <span class="muted small" style="font-weight:400">${DIST[x.r.dist].n} · ${esc(fmtD(x.r.start))} · ${x.days===0?'today':x.days+' day'+(x.days===1?'':'s')+' ('+x.weeks+' wk)'}</span></h3>
-     ${x.comps.map(c=>`<div style="margin-top:6px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="small"><b>${c.n}</b></span><span class="small muted">${c.d}</span></div><div class="bar" style="margin-top:3px"><div style="width:${c.s.toFixed(0)}%;background:${rrCol(c.s)}"></div></div></div>`).join('')}
-     <div class="small" style="margin-top:8px">${x.score>=85?'✔ You\'re in great shape for this race – protect it with a proper taper.':`Biggest gap: <b>${x.gap.n}</b>${wk?` · this week is a ${wk.phase} phase week in your roadmap.`:'.'}`}</div></div></div>`}).join('')+
-   `<p class="small muted" style="margin:6px 0 0">Compares your current fitness (CTL) from intervals.icu, projected forward to race day at your recent ramp rate, with what each race distance typically needs. Within 2 weeks of a race it also checks freshness (form). A guide, not a guarantee.</p></div>`;
+function raceReadyHtml(g){
+  const t0=new Date(),mid=new Date(t0.getFullYear(),t0.getMonth(),t0.getDate());
+  if(!ST)return pd(g.start)>=mid?`<div class="small muted" style="margin-top:10px">Connect intervals.icu to see how ready you are for this race.</div>`:'';
+  const x=raceReady(g);if(!x)return '';
+  if(x.noData)return `<div class="small muted" style="margin-top:10px">Needs your fitness (CTL) from intervals.icu to score race readiness.</div>`;
+  const arc=188.5,col=rrCol(x.score),wk=road&&road.weeks.find(w=>w.start<=ymd(new Date())&&ymd(addDays(pd(w.start),6))>=ymd(new Date()));
+  return `<div class="rrg" style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)">
+   <div style="text-align:center"><svg viewBox="0 0 150 92" style="width:150px"><path d="M15 80 A60 60 0 0 1 135 80" stroke="#27325a" stroke-width="13" fill="none" stroke-linecap="round"/><path d="M15 80 A60 60 0 0 1 135 80" stroke="${col}" stroke-width="13" fill="none" stroke-linecap="round" stroke-dasharray="${(x.score/100*arc).toFixed(1)} ${arc}"/><text x="75" y="72" text-anchor="middle" font-size="30" font-weight="800" fill="#e8ecff">${x.score}</text><text x="75" y="90" text-anchor="middle" font-size="11" font-weight="700" fill="${col}">${x.label.toUpperCase()}</text></svg></div>
+   <div><div class="small" style="font-weight:700">🏁 Race readiness · ${x.days===0?'today':x.days+' day'+(x.days===1?'':'s')+' ('+x.weeks+' wk)'}</div>
+   ${x.comps.map(c=>`<div style="margin-top:6px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="small"><b>${c.n}</b></span><span class="small muted">${c.d}</span></div><div class="bar" style="margin-top:3px"><div style="width:${c.s.toFixed(0)}%;background:${rrCol(c.s)}"></div></div></div>`).join('')}
+   <div class="small" style="margin-top:8px">${x.score>=85?"✔ You're in great shape for this race – protect it with a proper taper.":`Biggest gap: <b>${x.gap.n}</b>${wk?` · this week is a ${wk.phase} phase week in your roadmap.`:'.'}`}</div>
+   <p class="small muted" style="margin:6px 0 0">Compares your current fitness (CTL) from intervals.icu, projected forward to race day at your recent ramp rate, with what this distance typically needs. Within 2 weeks of the race it also checks freshness (form). A guide, not a guarantee.</p></div></div>`;
 }
 function fitTrend(){
   const s=(data.well||[]).filter(w=>w.ctl!=null&&w.atl!=null).sort((a,b)=>a.id<b.id?-1:1).slice(-45).map(w=>({d:String(w.id),ctl:w.ctl,atl:w.atl})),n=s.length;
@@ -773,7 +775,6 @@ function renderDash(){
   ${fitTrend()}
   ${progBlock()}
   ${trendBlock()}
-  ${raceReadyBlock()}
   ${predBlock()}
   <div class="grid two">
     <div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
@@ -854,7 +855,7 @@ function renderGoals(){
   el.innerHTML=[...goals].sort((a,b)=>a.start<b.start?-1:1).map(g=>{
     const now=Date.now(),s=pd(g.start).getTime(),e=addDays(pd(g.end),1).getTime();
     let body;
-    if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div>`}
+    if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div>${raceReadyHtml(g)}`}
     else{const cur=curMetric(g.metric),pct=cur!=null?Math.min(100,g.metric==='runpace'?g.target/cur*100:cur/g.target*100):0,tp=Math.min(100,Math.max(0,(now-s)/(e-s)*100));
       body=`<div class="small muted">${esc(fmtD(g.start))} → ${esc(fmtD(g.end))}</div><div class="small">${METRIC[g.metric]}: <b>${cur!=null?fmtM(g.metric,cur):'—'}</b> / ${fmtM(g.metric,g.target)} (${pct.toFixed(0)}%) · time elapsed ${tp.toFixed(0)}% ${cur!=null&&pct>=tp-5?'<span style="color:var(--ok)">✔ on track</span>':'<span style="color:var(--bad)">behind pace</span>'}</div><div class="bar"><div style="width:${pct}%"></div></div><div class="small" style="margin-top:6px">🎯 Training focus: ${focusOf(g).length?focusOf(g).map(x=>FLABEL[x]).join(', '):'<span class="muted">no keyword match – general training</span>'}</div>`}
     return `<div class="goal"><h3>${g.type==='race'?'<span class="tag r">RACE '+g.prio+'</span>'+(DIST[g.dist]?DIST[g.dist].n:esc(g.dist)):'<span class="tag">FITNESS</span>'} ${esc(g.name)}<span class="sp"></span><button class="btn alt sm" onclick="editGoal(${g.id})">Edit</button> <button class="btn alt sm" onclick="delGoal(${g.id})">Delete</button></h3>${body}</div>`}).join('');
@@ -925,7 +926,11 @@ function swimW(role,pi,mins){
 }
 function bikeW(role,v,pi,mins){
   const m=Math.round(mins),sec=[];let title;
-  if(role==='bikeE'){
+  if(role==='brickB'){
+    sec.push(S('Warmup',[st('8m ramp 50%-70%',480)]));
+    sec.push(S('Steady ride',[st(`${fmtDur(m-8)} ${wat(.75)} 90rpm`,(m-8)*60)],1,'Steady Z2–Z3 – no cooldown, change shoes fast and go straight into the run'));
+    title=`Brick ride ${fmtDur(m)} → run`;
+  }else if(role==='bikeE'){
     sec.push(S('Warmup',[st('5m ramp 45%-60%',300)]));
     sec.push(S('Endurance',[st(`${fmtDur(m-10)} ${wat(.68)} 90rpm`,(m-10)*60)],1,'Z2 – steady, conversational'));
     sec.push(S('Cooldown',[st(`5m ${wat(.5)}`,300)]));
@@ -955,6 +960,10 @@ function bikeW(role,v,pi,mins){
 }
 function runW(role,v,pi,mins){
   const m=Math.round(mins),sec=[],rp=rpMin(),Z1=pace(1.35);let title;
+  if(role==='brickR'){
+    sec.push(S('Run off the bike',[st(`${m}m ${pace(1.12)}`,m*60)],1,`Straight off the bike – legs feel heavy for the first 5–10 min, then settle into a steady, relaxed pace${paceMi(1.12)?' ≈ '+paceMi(1.12):''}`));
+    return{sections:sec,title:`Brick run ${fmtDur(m)} off the bike`,header:''};
+  }
   const wu=role==='runQ'?12:role==='longRun'?10:8,cd=role==='runQ'?8:5,M=m-wu-cd;
   sec.push(S('Warmup',[st(`${wu}m ${Z1}`,wu*60)],1,'Very easy pace'));
   if(role==='runE'){
@@ -1004,8 +1013,8 @@ function strW(role,mins){
   const m=Math.round(mins),per=Math.round(((m-3)*60)/L.length),nm=role==='strA'?'Strength A – legs & core':role==='strB'?'Strength B – upper & core':'Core circuit';
   return{sections:[S('Warm-up',[st('Leg swings, hip circles, cat-cow',180)]),S(nm,L.map(([e,r])=>st(`${e} ${r}`,per)),1,'Resistance bands + dumbbells · RPE 6–7')],title:`${nm} ${m}m`,header:''};
 }
-const ROLE={swimQ:['swim','quality'],swimE:['swim','endurance'],swimT:['swim','easy'],bikeQ:['bike','quality'],bikeE:['bike','easy'],longBike:['bike','long'],runQ:['run','quality'],runE:['run','easy'],longRun:['run','long'],strA:['strength','strength'],strB:['strength','strength'],core:['strength','core']};
-const IFR={swimQ:.85,swimE:.75,swimT:.65,bikeQ:.9,bikeE:.65,longBike:.72,runQ:.9,runE:.68,longRun:.72,strA:.5,strB:.5,core:.4};
+const ROLE={swimQ:['swim','quality'],swimE:['swim','endurance'],swimT:['swim','easy'],bikeQ:['bike','quality'],bikeE:['bike','easy'],longBike:['bike','long'],runQ:['run','quality'],runE:['run','easy'],longRun:['run','long'],strA:['strength','strength'],strB:['strength','strength'],core:['strength','core'],brickB:['bike','brick'],brickR:['run','brick']};
+const IFR={swimQ:.85,swimE:.75,swimT:.65,bikeQ:.9,bikeE:.65,longBike:.72,runQ:.9,runE:.68,longRun:.72,strA:.5,strB:.5,core:.4,brickB:.72,brickR:.8};
 function mkSession(ds,role,mins,v,g,pi,phase,extra,race){
   const [sp,kind]=ROLE[role];
   const W=sp==='swim'?swimW(role,pi,mins):sp==='bike'?bikeW(role,v,pi,mins):sp==='run'?runW(role,v,pi,mins):strW(role,mins);
@@ -1083,7 +1092,7 @@ function plannedHoursFor(key){
   if(plannedLog[key]!=null)return plannedLog[key];
   const r=road&&road.weeks.find(x=>x.start===key);return r?r.hours:null;
 }
-const WDW={swimQ:.13,swimE:.13,swimT:.13,bikeQ:.2,bikeE:.13,runQ:.18,runE:.13};
+const WDW={swimQ:.13,swimE:.13,swimT:.13,bikeQ:.2,bikeE:.13,runQ:.18,runE:.13,brickB:.14};
 /* ---------- per-type day availability: move each session to the nearest day allowed for its workout type ---------- */
 const TYPES=[['swim','Swim'],['bike','Bike'],['run','Run'],['strength','Strength & core']];
 const TD_DEFAULT=()=>({swim:[1,4],bike:[0,1,2,3,4,5,6],run:[0,1,2,3,4,5,6],strength:[0,1,2,3,4,5,6]});
@@ -1155,6 +1164,21 @@ function buildWeek(ws,ci){
    T=r.T;
    if(r.moved.length)why.push('Moved to the days you can do each workout type: '+r.moved.map(m=>`${nm(m.t)} ${DN[m.t.d]} → ${DN[m.to]}`).join(', ')+'.');
    if(r.skipped.length)why.push('No allowed day for: '+r.skipped.map(t=>`${nm(t)} (${DN[t.d]})`).join(', ')+' – skipped.')}
+  if(ci.brick!=null){
+    const d=ci.brick,td2=ci.typeDays||TD_DEFAULT(),skip=m=>why.push('Brick workout skipped: '+m);
+    if(downgrade)skip('this is a recovery or easy week.');
+    else if(rw.raceDay)skip('race week.');
+    else if(addDays(ws,d)<todayMid||d>=rd)skip(DN[d]+' is not available this week.');
+    else if(!avail.has(d))skip(DN[d]+' is not one of your available days.');
+    else if(!(td2.bike||[]).includes(d)||!(td2.run||[]).includes(d))skip('bike and run must both be allowed on '+DN[d]+' in the day grid.');
+    else if(T.some(t=>t.d===d&&(t.role==='runQ'||t.role==='longRun')))skip(DN[d]+' already has a key run.');
+    else{
+      T=T.filter(t=>!(t.d===d&&t.role==='runE'));
+      const bi=T.map(t=>t.d===d&&ROLE[t.role][0]==='bike').lastIndexOf(true);
+      if(bi>=0){T.splice(bi+1,0,{d,role:'brickR'});why.push(`Brick: ${DN[d]} – a short run straight off the bike session.`)}
+      else{T.push({d,role:'brickB'},{d,role:'brickR'});why.push(`Brick: ${DN[d]} – a steady ride followed straight by a run.`)}
+    }
+  }
   {const dl=sp=>[...new Set(T.filter(t=>ROLE[t.role][0]===sp).map(t=>t.d))].sort((a,b)=>a-b).map(d=>DN[d]).join('/')||'none';
    why.push(`Schedule: swim ${dl('swim')} · bike ${dl('bike')} · run ${dl('run')} · strength/core ${dl('strength')} · ${strDays} strength/core days.`)}
   why.push(`Pool: swims are planned for a ${POOL==='25m'?'25-meter pool, in meters':'25-yard pool, in yards'}.`);
@@ -1192,7 +1216,7 @@ function buildWeek(ws,ci){
   const taper=phase==='Taper'||phase==='Race',runType=rw.target&&DIST[rw.target.dist].type==='run',HM=h*60;
   const fr=runType?{lb:.2,lr:.22}:{lb:.28,lr:.17},lo=taper?35:60;
   const LB=clamp(r5(HM*fr.lb*((T.find(t=>t.role==='longBike')||{}).mult||1)),lo,210),LR=clamp(r5(HM*fr.lr*((T.find(t=>t.role==='longRun')||{}).mult||1)),taper?30:45,150);
-  const smin={strA:30,strB:30,core:15},stren=T.reduce((a,t)=>a+(smin[t.role]||0),0),WB=Math.max(HM-LB-LR-stren,110);
+  const smin={strA:30,strB:30,core:15,brickR:taper?15:20},stren=T.reduce((a,t)=>a+(smin[t.role]||0),0),WB=Math.max(HM-LB-LR-stren,110);
   const wm=t=>(WDW[t.role]||0)*((t.role.startsWith('swim')&&hot&&fm.has('swim'))?1.3:1)*((t.role.startsWith('bike')&&hot&&(fm.has('ftp')||fm.has('vo2')))?1.15:1)*((t.role.startsWith('run')&&hot&&fm.has('speed'))?1.2:1)*(runType&&t.role.startsWith('run')?1.3:1);
   const wsum=T.reduce((a,t)=>a+wm(t),0)||1;
   const sessions=T.map(t=>{
@@ -1240,6 +1264,8 @@ function sessionReason(s,pi){
   else if(r==='runQ')t={tempo:'Tempo running raises the pace you can hold comfortably and improves running economy.',thr:'Threshold reps at critical-speed pace lift your sustainable running speed.',speed:'Short fast reps in miles build speed and efficiency with full recoveries.',vo2:'3-minute VO2 intervals raise your aerobic ceiling.',hill:'Hill reps build power and running strength with less impact than flat speed work.'}[v]||'Key run session to progress pace.';
   else if(r==='runE')t=v==='strides'?'Easy running plus short strides keeps leg speed and running economy ticking over without adding fatigue.':'Easy aerobic run adds running volume safely and aids recovery.';
   else if(r==='longRun')t={easy:'Long easy run builds endurance and resilience (capped at 2h30).',prog:'Long run with a steady finish teaches your legs to hold pace when fatigued.',prog2:'Long run with a longer steady finish rehearses race-pace fatigue.'}[v]||'Long run for endurance.';
+  else if(r==='brickB')t='A steady ride that leads straight into a run teaches your legs to run well when they are already tired from cycling – the key skill in a triathlon.';
+  else if(r==='brickR')t='A short run straight off the bike lets you practise the heavy-legs feeling of T2 and settle into race rhythm quickly.';
   else if(r==='strA')t='Strength A (legs & core, dumbbells + bands) builds the strength that protects your knees and hips and improves power.';
   else if(r==='strB')t='Strength B (upper body & core) supports swim and bike posture and overall resilience.';
   else if(r==='core')t='Short core circuit for trunk stability that carries over to all three sports.';
@@ -1290,7 +1316,7 @@ function buildReasoning(c){
 /* ---------- check-in UI ---------- */
 const DN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 function readTypeDays(){const o={swim:[],bike:[],run:[],strength:[]};$$('#c_type input').forEach(x=>{if(x.checked)o[x.dataset.k].push(+x.value)});return o}
-function readCI(){return{week:$('#c_week').value,energy:+$('#c_energy').value,sleep:$('#c_sleep').value,sore:$('#c_sore').value,cap:null,longBikeDay:+$('#c_long').value,longRunDay:+$('#c_longrun').value,strDays:+$('#c_str').value,pool:$('#c_pool').value,typeDays:readTypeDays(),focus:$$('#c_focus input').filter(x=>x.checked).map(x=>x.value),notes:$('#c_notes').value.trim(),days:$$('#c_days input').filter(x=>x.checked).map(x=>+x.value)}}
+function readCI(){return{week:$('#c_week').value,energy:+$('#c_energy').value,sleep:$('#c_sleep').value,sore:$('#c_sore').value,cap:null,longBikeDay:+$('#c_long').value,longRunDay:+$('#c_longrun').value,strDays:+$('#c_str').value,pool:$('#c_pool').value,brick:$('#c_brick').value==='1'?+$('#c_brickday').value:null,typeDays:readTypeDays(),focus:$$('#c_focus input').filter(x=>x.checked).map(x=>x.value),notes:$('#c_notes').value.trim(),days:$$('#c_days input').filter(x=>x.checked).map(x=>+x.value)}}
 function showTab(id){$$('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t===id));$$('.tab').forEach(t=>t.classList.toggle('on',t.id===id))}
 function renderDue(){
   const t=new Date(),dow=(t.getDay()+6)%7,key=ymd(monday(t)),el=$('#dueBanner'),due=!weeksLog[key];
@@ -1520,6 +1546,9 @@ $('#saveSet').onclick=async()=>{
   if(await sync())$('#dlg').close();
 };
 function renderAll(){analyze();renderDash();renderGoals();renderPlanTab()}
+{const bk=store.get('tp_brick',{on:0,day:5}),sync2=()=>{$('#c_brickday').disabled=$('#c_brick').value!=='1'};
+ $('#c_brick').value=bk.on?'1':'0';$('#c_brickday').value=String(bk.day);sync2();
+ $('#c_brick').onchange=$('#c_brickday').onchange=()=>{sync2();store.set('tp_brick',{on:$('#c_brick').value==='1'?1:0,day:+$('#c_brickday').value})}}
 $('#c_pool').value=store.get('tp_pool','y');setPool($('#c_pool').value);$('#c_pool').onchange=()=>{store.set('tp_pool',$('#c_pool').value);setPool($('#c_pool').value)};
 {const td=Object.assign(TD_DEFAULT(),store.get('tp_typedays',{}));
  $('#c_type').innerHTML=`<table><tr><th></th>${DN.map(d=>`<th>${d}</th>`).join('')}</tr>${TYPES.map(([k,l])=>`<tr><td>${l}</td>${DN.map((d,i)=>`<td><input type="checkbox" data-k="${k}" value="${i}" aria-label="${l} on ${d}" ${(td[k]||[]).includes(i)?'checked':''}></td>`).join('')}</tr>`).join('')}</table>`;
