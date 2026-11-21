@@ -760,7 +760,8 @@ function renderDash(){
   if(!ST){el.innerHTML=`<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">Connect your intervals.icu account to analyze your last 4 weeks of training and build a data-driven triathlon plan.</p><button class="btn" onclick="$('#dlg').showModal()">Connect intervals.icu</button> <button class="btn alt" onclick="demoData()">Try demo data</button></div>`;return}
   const k=(l,v,s)=>`<div class="kpi"><span>${l}</span><b>${v}</b><em class="muted">${s||''}</em></div>`;
   const tr=ST.trend;
-  el.innerHTML=`<div class="grid kpis" style="margin-bottom:18px">
+  el.innerHTML=`${readyBlock()}
+  <div class="grid kpis" style="margin-bottom:18px">
     ${k('Avg weekly hours',ST.avgH.toFixed(1)+'h','last 4 weeks')}
     ${k('Avg weekly load',Math.round(ST.avgL),'training load')}
     ${k('Volume trend',(tr>=0?'+':'')+tr.toFixed(0)+'%','recent 2 wks vs first 2')}
@@ -768,7 +769,6 @@ function renderDash(){
   ${fitTrend()}
   ${progBlock()}
   ${trendBlock()}
-  ${readyBlock()}
   ${raceReadyBlock()}
   ${predBlock()}
   <div class="grid two">
