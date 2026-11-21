@@ -140,7 +140,7 @@ details.card>summary{cursor:pointer;font-weight:700}
     <div class="card">
       <h2>🗓 Weekly check-in</h2>
       <p class="small muted" style="margin-top:-6px">Every Monday, answer a few questions and TriPulse builds <b>only the upcoming week</b>. Review exactly how each workout is built — nothing goes to intervals.icu until you press Sync.</p>
-      <p class="small muted"><b>Fixed schedule:</b> Mon rest (switchable) · Tue &amp; Fri pool (swim + run/bike, alternating) · Wed/Thu run &amp; bike quality + strength/core · long ride (max 3h30) and long run (max 2h30) on your chosen days · weekday workouts ≤ 1h15 · 25-yard pool.</p>
+      <p class="small muted"><b>Fixed schedule:</b> Mon rest (switchable) · Tue &amp; Fri pool (swim + run/bike, alternating) · Wed/Thu run &amp; bike quality + strength/core · long ride (max 3h30) and long run (max 2h30) on your chosen days · weekday workouts ≤ 1h15 · swim distances use the pool length chosen below.</p>
       <div class="note" id="ciAuto"></div>
       <div class="form">
         <div><label>Week starting (Monday)</label><input type="date" id="c_week"></div>
@@ -150,6 +150,7 @@ details.card>summary{cursor:pointer;font-weight:700}
         <div><label>Long bike day</label><select id="c_long"><option value="5" selected>Saturday</option><option value="6">Sunday</option></select></div>
         <div><label>Long run day</label><select id="c_longrun"><option value="6" selected>Sunday</option><option value="5">Saturday</option></select></div>
         <div><label>Strength &amp; core days</label><select id="c_str"><option value="3" selected>3 days</option><option value="4">4 days</option></select></div>
+        <div><label>Pool length</label><select id="c_pool"><option value="y">25 yards</option><option value="m">25 meters</option></select></div>
       </div>
       <label style="margin-top:14px">Any specific focus this week? (pick none, one or several)</label>
       <div class="dp" id="c_focus">
@@ -877,7 +878,8 @@ function focusOf(g){
 const tgt=(g,sp)=>g&&g.metric==='bikewatts'&&sp==='bike'?` · target ${Math.round(g.target)} W`:g&&g.metric==='runpace'&&sp==='run'?` · target pace ${fmtPace(g.target)} /mi`:'';
 const PI={Base:0,Build:1,Peak:2,Taper:2,Race:2,Recover:0};
 const TYPE={swim:'Swim',bike:'Ride',run:'Run',strength:'WeightTraining'};
-const POOL='25y',SU='y';   // pool length and swim distance unit (25-yard pool)
+let POOL='25y',SU='y',UL='y';   // pool length, unit token used in intervals.icu workout text, unit shown in the app
+function setPool(p){p=p||store.get('tp_pool','y');const m=p==='m';POOL=m?'25m':'25y';SU=m?'mtr':'y';UL=m?'m':'y'}
 
 /* ---------- workout building blocks (intervals.icu workout syntax) ---------- */
 const fmtDur=m=>{m=Math.round(m);const h=Math.floor(m/60),mm=m%60;return h?(mm?`${h}h${mm}m`:`${h}h`):`${mm}m`};
@@ -887,7 +889,7 @@ const wat=f=>{const T=THR();return T.ftp?`${r5(f*T.ftp)}W`:`${Math.round(f*100)}
 const pace=m=>{const T=THR();return T.rp?`${fmtPace(T.rp*1.609344*m)} pace`:`${Math.round(100/m)}% pace`};   // absolute min/mile pace, or % of threshold pace   // m = multiple of CSS-pace time (>1 = slower)
 const paceMi=m=>{const T=THR();return T.rp?`${fmtPace(T.rp*1.609344*m)}/mi`:''};
 const rpMin=()=>THR().rp||5.3;
-const cssY=()=>(THR().css||100)*0.9144;                                   // sec per 100y at CSS
+const cssY=()=>(THR().css||100)*(POOL==='25m'?1:0.9144);                  // sec per 100 (yards or meters, per the pool setting) at CSS
 const S=(name,steps,reps=1,tip='')=>({name,reps,steps,tip});
 const st=(l,s,y)=>({l,s,y});
 const swS=(y,pct)=>Math.round(y/100*cssY()/(pct/100));
@@ -895,7 +897,7 @@ const sw=(y,pct,cue)=>st(`${y}${SU} ${pct}% Pace${cue?' '+cue:''}`,swS(y,pct),y)
 const rest=s=>st(`${s}s intensity=rest`,s);
 
 function swimW(role,pi,mins){
-  const Y=Math.max(1200,r25(mins*55)),warm=r25(Math.min(400,Y*.15)),cool=r25(clamp(Y*.07,100,200)),sec=[];let used=warm+cool,title;
+  const mt=POOL==='25m',Y=Math.max(mt?1100:1200,r25(mins*(mt?50:55))),warm=r25(Math.min(400,Y*.15)),cool=r25(clamp(Y*.07,100,200)),sec=[];let used=warm+cool,title;
   sec.push(S('Warmup',[sw(warm,65,'free easy')],1,'Easy – freestyle'));
   if(role==='swimT'){
     sec.push(S('Technique drills',[sw(50,70,'free catch-up drill'),rest(15)],6,'Smooth, long strokes'));used+=300;
@@ -904,19 +906,19 @@ function swimW(role,pi,mins){
     title='Technique swim';
   }else if(role==='swimQ'){
     sec.push(S('Drill set',[sw(50,70,'free fingertip-drag drill'),rest(15)],4,'Technique'));used+=200;
-    if(Y>=1800){sec.push(S('Kick set',[sw(50,75,'free fins kick on side'),rest(15)],4,'Fins'));used+=200}
+    if(Y>=(mt?1650:1800)){sec.push(S('Kick set',[sw(50,75,'free fins kick on side'),rest(15)],4,'Fins'));used+=200}
     const M=Math.max(400,Y-used),c=pi===0?{d:100,p:95,r:15}:{d:200,p:100,r:20},reps=clamp(Math.round(M/c.d),3,12);
     sec.push(S('Main Set',[sw(c.d,c.p,'free'),rest(c.r)],reps,`CSS work – ${c.p}% of threshold swim pace`));
-    title=`CSS swim ${reps}×${c.d}${SU} @ ${c.p}% Pace`;
+    title=`CSS swim ${reps}×${c.d}${UL} @ ${c.p}% Pace`;
   }else{
     sec.push(S('Pull set',[sw(200,80,'free pull buoy'),rest(15)],2,'Pull buoy'));used+=400;
     const M=Math.max(600,Y-used),c=pi===0?{d:300,p:85,r:20,c:'free'}:pi===1?{d:400,p:88,r:25,c:'free paddles pull buoy'}:{d:500,p:90,r:25,c:'free paddles pull buoy'},reps=clamp(Math.round(M/c.d),2,6);
     sec.push(S('Main Set',[sw(c.d,c.p,c.c),rest(c.r)],reps,`Aerobic endurance – ${c.p}% Pace${c.c.includes('paddles')?' (paddles + pull buoy)':''}`));
-    title=`Endurance swim ${reps}×${c.d}${SU} @ ${c.p}% Pace`;
+    title=`Endurance swim ${reps}×${c.d}${UL} @ ${c.p}% Pace`;
   }
   sec.push(S('Cooldown',[sw(cool,60,'free or breast easy')],1,'Easy – freestyle or breaststroke'));
   const total=sec.reduce((a,sc)=>a+sc.steps.reduce((b,x)=>b+(x.y||0),0)*sc.reps,0);
-  return{sections:sec,title:`${title} · ${total}${SU}`,header:`pool length: ${POOL}`,yards:total};
+  return{sections:sec,title:`${title} · ${total}${UL}`,header:`pool length: ${POOL}`,yards:total,ul:UL};
 }
 function bikeW(role,v,pi,mins){
   const m=Math.round(mins),sec=[];let title;
@@ -1007,8 +1009,8 @@ function mkSession(ds,role,mins,v,g,pi,phase,extra,race){
   const secs=W.sections.reduce((a,sc)=>a+sc.steps.reduce((b,x)=>b+(x.s||0),0)*sc.reps,0),m=Math.max(10,Math.round(secs/60));
   const title=W.title+(extra||'');
   const text=(W.header?W.header+'\n\n':'')+W.sections.map(sc=>`${sc.name}${sc.reps>1?' '+sc.reps+'x':''}\n`+sc.steps.map(x=>'- '+x.l).join('\n')).join('\n\n');
-  const blocks=W.sections.map(sc=>({name:sc.name+(sc.reps>1?` ×${sc.reps}`:''),mins:Math.round(sc.steps.reduce((a,x)=>a+(x.s||0),0)*sc.reps/60),what:sc.steps.map(x=>x.l).join('\n'),target:sc.tip||''}));
-  return{date:ds,sport:sp,role,kind,mins:m,title,main:title,desc:title+(g?` 🎯 ${g}`:''),tss:Math.round(m/60*IFR[role]**2*100),phase,goal:g||null,on:true,text,blocks,eid:`tripulse-${ds}-${sp}-${role}`,eventId:null,syncedAt:null,yards:W.yards||null,v:v||null};
+  const blocks=W.sections.map(sc=>({name:sc.name+(sc.reps>1?` ×${sc.reps}`:''),mins:Math.round(sc.steps.reduce((a,x)=>a+(x.s||0),0)*sc.reps/60),what:sc.steps.map(x=>x.l.replace(/(\d)mtr\b/g,'$1m')).join('\n'),target:sc.tip||''}));
+  return{date:ds,sport:sp,role,kind,mins:m,title,main:title,desc:title+(g?` 🎯 ${g}`:''),tss:Math.round(m/60*IFR[role]**2*100),phase,goal:g||null,on:true,text,blocks,eid:`tripulse-${ds}-${sp}-${role}`,eventId:null,syncedAt:null,yards:W.yards||null,ul:W.ul||null,v:v||null};
 }
 
 /* ---------- season roadmap: every race in the goals, phase + target hours per week ---------- */
@@ -1080,6 +1082,7 @@ function plannedHoursFor(key){
 }
 const WDW={swimQ:.13,swimE:.13,swimT:.13,bikeQ:.2,bikeE:.13,runQ:.18,runE:.13};
 function buildWeek(ws,ci){
+  setPool(ci.pool);
   const key=ymd(ws),why=[];
   if(!road||!road.weeks.some(w=>w.start===key)){
     road=buildRoadmap({start:key,weeks:+$('#r_weeks').value||12,ramp:+$('#r_ramp').value||.08});
@@ -1130,6 +1133,7 @@ function buildWeek(ws,ci){
       mv.forEach(t=>{T.push({...t,d:0});dropped.splice(dropped.indexOf(t),1)});why.push(`Rest day switched: ${DN[fd]} sessions moved to Monday.`)}
   }
   why.push(`Schedule: pool Tue & Fri · long ride ${DN[ci.longBikeDay]} · long run ${DN[ci.longRunDay]} · ${A?'Tue swim+run, Fri swim+bike':'Tue swim+bike, Fri swim+run'} · ${strDays} strength/core days.`);
+  why.push(`Pool: swims are planned for a ${POOL==='25m'?'25-meter pool, in meters':'25-yard pool, in yards'}.`);
   if(dropped.length)why.push(`Skipped (day not available): ${[...new Set(dropped.map(t=>DN[t.d]))].join(', ')}${dropped.some(t=>t.role.startsWith('swim'))?' – pool sessions can only be Tue/Fri, so those swims are dropped':''}.`);
   if(rw.raceDay)why.push('Race week: long sessions removed and nothing scheduled on or after race day.');
   if(!T.length&&!rw.raceDay)return{err:'No sessions fit your available days (days already past are skipped).'};
@@ -1261,7 +1265,7 @@ function buildReasoning(c){
 }
 /* ---------- check-in UI ---------- */
 const DN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-function readCI(){return{week:$('#c_week').value,energy:+$('#c_energy').value,sleep:$('#c_sleep').value,sore:$('#c_sore').value,cap:null,longBikeDay:+$('#c_long').value,longRunDay:+$('#c_longrun').value,strDays:+$('#c_str').value,focus:$$('#c_focus input').filter(x=>x.checked).map(x=>x.value),notes:$('#c_notes').value.trim(),days:$$('#c_days input').filter(x=>x.checked).map(x=>+x.value)}}
+function readCI(){return{week:$('#c_week').value,energy:+$('#c_energy').value,sleep:$('#c_sleep').value,sore:$('#c_sore').value,cap:null,longBikeDay:+$('#c_long').value,longRunDay:+$('#c_longrun').value,strDays:+$('#c_str').value,pool:$('#c_pool').value,focus:$$('#c_focus input').filter(x=>x.checked).map(x=>x.value),notes:$('#c_notes').value.trim(),days:$$('#c_days input').filter(x=>x.checked).map(x=>+x.value)}}
 function showTab(id){$$('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t===id));$$('.tab').forEach(t=>t.classList.toggle('on',t.id===id))}
 function renderDue(){
   const t=new Date(),dow=(t.getDay()+6)%7,key=ymd(monday(t)),el=$('#dueBanner'),due=!weeksLog[key];
@@ -1300,7 +1304,7 @@ function renderWeek(){
     <details open><summary><b>How this week was built</b></summary><ul class="why small">${w.why.map(x=>`<li>${x}</li>`).join('')}</ul></details>
     <p class="small muted">Tap a workout to see its warm-up, main set and cool-down, the exact intervals.icu text, and a sync button for that single workout. Untick any workout you don't want in “Sync all”.</p>
     <div class="row"><button class="btn" id="syncWeek" onclick="syncWeek()"></button><button class="btn alt" onclick="csvWeek()">Export CSV</button><button class="btn alt" style="color:var(--bad)" onclick="delWeek('${w.start}')">🗑 Delete week</button><span id="syncInfo" class="small"></span></div></div>
-    <div class="week"><div class="days">${DN.map((dn,di)=>{const ds=ymd(addDays(ws,di));return `<div class="day"><h4>${dn} ${fmtDate(addDays(ws,di))}</h4>${w.sessions.map((s,i)=>s.date!==ds?'':s.sport==='race'?`<div class="chip race"><b>🏁 RACE DAY</b><p>${esc(s.desc)}</p></div>`:`<details class="chip ${s.sport}"><summary><input type="checkbox" ${s.on?'checked':''} onclick="event.stopPropagation()" onchange="togS(${i},this.checked)"><b>${ICON[s.sport]} ${s.sport==='swim'&&s.yards?s.yards+SU:s.mins+' min'}</b> <span class="muted">${s.kind} · ${s.mins}m · ${s.tss} TSS${s.syncedAt?' · ✔ synced':''}</span></summary><p>${esc(s.desc)}</p>${blocks(s)}<div class="row" style="margin-top:8px"><button class="btn sm" onclick="syncOne(${i})">☁ ${s.syncedAt?'Re-sync':'Sync'} this workout</button><button class="btn alt sm" style="color:var(--bad)" onclick="delSession(${i})">🗑 Delete workout</button></div><details><summary class="small muted">intervals.icu workout text</summary><pre>${esc(s.text)}</pre></details></details>`).join('')||'<span class="muted">Rest</span>'}</div>`}).join('')}</div></div>${reasonCard(w)}`;
+    <div class="week"><div class="days">${DN.map((dn,di)=>{const ds=ymd(addDays(ws,di));return `<div class="day"><h4>${dn} ${fmtDate(addDays(ws,di))}</h4>${w.sessions.map((s,i)=>s.date!==ds?'':s.sport==='race'?`<div class="chip race"><b>🏁 RACE DAY</b><p>${esc(s.desc)}</p></div>`:`<details class="chip ${s.sport}"><summary><input type="checkbox" ${s.on?'checked':''} onclick="event.stopPropagation()" onchange="togS(${i},this.checked)"><b>${ICON[s.sport]} ${s.sport==='swim'&&s.yards?s.yards+(s.ul||'y'):s.mins+' min'}</b> <span class="muted">${s.kind} · ${s.mins}m · ${s.tss} TSS${s.syncedAt?' · ✔ synced':''}</span></summary><p>${esc(s.desc)}</p>${blocks(s)}<div class="row" style="margin-top:8px"><button class="btn sm" onclick="syncOne(${i})">☁ ${s.syncedAt?'Re-sync':'Sync'} this workout</button><button class="btn alt sm" style="color:var(--bad)" onclick="delSession(${i})">🗑 Delete workout</button></div><details><summary class="small muted">intervals.icu workout text</summary><pre>${esc(s.text)}</pre></details></details>`).join('')||'<span class="muted">Rest</span>'}</div>`}).join('')}</div></div>${reasonCard(w)}`;
   updTotals();
 }
 function reasonCard(w){
@@ -1491,6 +1495,7 @@ $('#saveSet').onclick=async()=>{
   if(await sync())$('#dlg').close();
 };
 function renderAll(){analyze();renderDash();renderGoals();renderPlanTab()}
+$('#c_pool').value=store.get('tp_pool','y');setPool($('#c_pool').value);$('#c_pool').onchange=()=>{store.set('tp_pool',$('#c_pool').value);setPool($('#c_pool').value)};
 $('#c_days').innerHTML=DN.map((d,i)=>`<label><input type="checkbox" value="${i}" ${i>=1?'checked':''}>${d}</label>`).join('');
 {const t=new Date(),dow=(t.getDay()+6)%7,cur=monday(t),ck=ymd(cur);
  $('#c_week').value=(!weeksLog[ck]&&dow<=2)?ck:ymd(addDays(cur,7));
