@@ -88,6 +88,7 @@ details.card>summary{cursor:pointer;font-weight:700}
 .quote.out{opacity:0}.quote b{color:var(--tx);font-style:normal;font-weight:600}
 @media(prefers-reduced-motion:reduce){.quote{transition:none}}
 .lg{display:inline-flex;align-items:center;gap:6px;margin-right:18px;font-weight:600;font-size:13px}.lg i{width:18px;height:3px;border-radius:2px;display:inline-block}
+.tdays{overflow-x:auto}.tdays table{width:auto;min-width:420px}.tdays th,.tdays td{text-align:center;padding:6px 10px}.tdays td:first-child,.tdays th:first-child{text-align:left}.tdays input{width:auto}
 </style>
 </head>
 <body>
@@ -140,7 +141,7 @@ details.card>summary{cursor:pointer;font-weight:700}
     <div class="card">
       <h2>🗓 Weekly check-in</h2>
       <p class="small muted" style="margin-top:-6px">Every Monday, answer a few questions and TriPulse builds <b>only the upcoming week</b>. Review exactly how each workout is built — nothing goes to intervals.icu until you press Sync.</p>
-      <p class="small muted"><b>Fixed schedule:</b> Mon rest (switchable) · Tue &amp; Fri pool (swim + run/bike, alternating) · Wed/Thu run &amp; bike quality + strength/core · long ride (max 3h30) and long run (max 2h30) on your chosen days · weekday workouts ≤ 1h15 · swim distances use the pool length chosen below.</p>
+      <p class="small muted"><b>Fixed schedule:</b> Mon rest (switchable) · pool Tue &amp; Fri by default, editable below (swim + run/bike, alternating) · Wed/Thu run &amp; bike quality + strength/core · long ride (max 3h30) and long run (max 2h30) on your chosen days · weekday workouts ≤ 1h15 · swim distances use the pool length chosen below.</p>
       <div class="note" id="ciAuto"></div>
       <div class="form">
         <div><label>Week starting (Monday)</label><input type="date" id="c_week"></div>
@@ -161,6 +162,8 @@ details.card>summary{cursor:pointer;font-weight:700}
       </div>
       <label style="margin-top:14px">Days available (Monday is your rest day by default — tick Monday and untick another day to switch your rest day)</label>
       <div class="dp" id="c_days"></div>
+      <label style="margin-top:14px">Days I can do each type of workout (sessions move to the nearest day you allow; a day unticked in Days available above still means no training)</label>
+      <div id="c_type" class="tdays"></div>
       <div style="margin-top:14px"><label>Notes (optional — e.g. “travelling Thursday”, “felt sick”, “knee sore”)</label><input id="c_notes" placeholder="Anything TriPulse should know about this week"></div>
       <div class="row"><button class="btn" id="buildWeek">⚡ Build my week</button><span class="small muted">Rebuild as often as you like before syncing.</span></div>
     </div>
@@ -1081,6 +1084,22 @@ function plannedHoursFor(key){
   const r=road&&road.weeks.find(x=>x.start===key);return r?r.hours:null;
 }
 const WDW={swimQ:.13,swimE:.13,swimT:.13,bikeQ:.2,bikeE:.13,runQ:.18,runE:.13};
+/* ---------- per-type day availability: move each session to the nearest day allowed for its workout type ---------- */
+const TYPES=[['swim','Swim'],['bike','Bike'],['run','Run'],['strength','Strength & core']];
+const TD_DEFAULT=()=>({swim:[1,4],bike:[0,1,2,3,4,5,6],run:[0,1,2,3,4,5,6],strength:[0,1,2,3,4,5,6]});
+function applyTypeDays(T,TD,avail,okDate){
+  const sp=t=>ROLE[t.role][0],hard=r=>/Q$|^long/.test(r),long=r=>r.startsWith('long'),allowed=(t,d)=>avail.has(d)&&(TD[sp(t)]||[]).includes(d);
+  const out=T.filter(t=>allowed(t,t.d)),bad=T.filter(t=>!allowed(t,t.d)),moved=[],skipped=[];
+  bad.forEach(t=>{
+    const cand=(long(t.role)?[5,6]:[0,1,2,3,4,5,6]).filter(d=>d!==t.d&&allowed(t,d)&&okDate(d)).sort((a,b)=>Math.abs(a-t.d)-Math.abs(b-t.d)||b-a);
+    const n=d=>out.filter(x=>x.d===d).length;
+    const strict=d=>n(d)<3&&(sp(t)==='strength'||!out.some(x=>x.d===d&&sp(x)===sp(t)))&&!(hard(t.role)&&out.some(x=>x.d===d&&hard(x.role)));
+    const sameSp=d=>sp(t)!=='strength'&&out.some(x=>x.d===d&&sp(x)===sp(t));
+    let d=cand.find(strict);if(d===undefined)d=cand.find(x=>n(x)<4&&!sameSp(x));if(d===undefined)d=cand.find(x=>n(x)<4);
+    if(d===undefined)skipped.push(t);else{out.push({...t,d});moved.push({t,to:d})}
+  });
+  return{T:out,moved,skipped};
+}
 function buildWeek(ws,ci){
   setPool(ci.pool);
   const key=ymd(ws),why=[];
@@ -1132,9 +1151,14 @@ function buildWeek(ws,ci){
     if(cand.length){const fd=Math.min(...cand.map(t=>t.d)),mv=dropped.filter(t=>t.d===fd&&!t.role.startsWith('swim'));
       mv.forEach(t=>{T.push({...t,d:0});dropped.splice(dropped.indexOf(t),1)});why.push(`Rest day switched: ${DN[fd]} sessions moved to Monday.`)}
   }
-  why.push(`Schedule: pool Tue & Fri · long ride ${DN[ci.longBikeDay]} · long run ${DN[ci.longRunDay]} · ${A?'Tue swim+run, Fri swim+bike':'Tue swim+bike, Fri swim+run'} · ${strDays} strength/core days.`);
+  {const r=applyTypeDays(T,ci.typeDays||TD_DEFAULT(),avail,d=>addDays(ws,d)>=todayMid&&d<rd),nm=t=>ROLE[t.role][0]+' '+ROLE[t.role][1];
+   T=r.T;
+   if(r.moved.length)why.push('Moved to the days you can do each workout type: '+r.moved.map(m=>`${nm(m.t)} ${DN[m.t.d]} → ${DN[m.to]}`).join(', ')+'.');
+   if(r.skipped.length)why.push('No allowed day for: '+r.skipped.map(t=>`${nm(t)} (${DN[t.d]})`).join(', ')+' – skipped.')}
+  {const dl=sp=>[...new Set(T.filter(t=>ROLE[t.role][0]===sp).map(t=>t.d))].sort((a,b)=>a-b).map(d=>DN[d]).join('/')||'none';
+   why.push(`Schedule: swim ${dl('swim')} · bike ${dl('bike')} · run ${dl('run')} · strength/core ${dl('strength')} · ${strDays} strength/core days.`)}
   why.push(`Pool: swims are planned for a ${POOL==='25m'?'25-meter pool, in meters':'25-yard pool, in yards'}.`);
-  if(dropped.length)why.push(`Skipped (day not available): ${[...new Set(dropped.map(t=>DN[t.d]))].join(', ')}${dropped.some(t=>t.role.startsWith('swim'))?' – pool sessions can only be Tue/Fri, so those swims are dropped':''}.`);
+  if(dropped.length)why.push(`Skipped (day not available): ${[...new Set(dropped.map(t=>DN[t.d]))].join(', ')}${dropped.some(t=>t.role.startsWith('swim'))?' – those swims are skipped':''}.`);
   if(rw.raceDay)why.push('Race week: long sessions removed and nothing scheduled on or after race day.');
   if(!T.length&&!rw.raceDay)return{err:'No sessions fit your available days (days already past are skipped).'};
   // variants
@@ -1265,7 +1289,8 @@ function buildReasoning(c){
 }
 /* ---------- check-in UI ---------- */
 const DN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-function readCI(){return{week:$('#c_week').value,energy:+$('#c_energy').value,sleep:$('#c_sleep').value,sore:$('#c_sore').value,cap:null,longBikeDay:+$('#c_long').value,longRunDay:+$('#c_longrun').value,strDays:+$('#c_str').value,pool:$('#c_pool').value,focus:$$('#c_focus input').filter(x=>x.checked).map(x=>x.value),notes:$('#c_notes').value.trim(),days:$$('#c_days input').filter(x=>x.checked).map(x=>+x.value)}}
+function readTypeDays(){const o={swim:[],bike:[],run:[],strength:[]};$$('#c_type input').forEach(x=>{if(x.checked)o[x.dataset.k].push(+x.value)});return o}
+function readCI(){return{week:$('#c_week').value,energy:+$('#c_energy').value,sleep:$('#c_sleep').value,sore:$('#c_sore').value,cap:null,longBikeDay:+$('#c_long').value,longRunDay:+$('#c_longrun').value,strDays:+$('#c_str').value,pool:$('#c_pool').value,typeDays:readTypeDays(),focus:$$('#c_focus input').filter(x=>x.checked).map(x=>x.value),notes:$('#c_notes').value.trim(),days:$$('#c_days input').filter(x=>x.checked).map(x=>+x.value)}}
 function showTab(id){$$('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t===id));$$('.tab').forEach(t=>t.classList.toggle('on',t.id===id))}
 function renderDue(){
   const t=new Date(),dow=(t.getDay()+6)%7,key=ymd(monday(t)),el=$('#dueBanner'),due=!weeksLog[key];
@@ -1496,6 +1521,9 @@ $('#saveSet').onclick=async()=>{
 };
 function renderAll(){analyze();renderDash();renderGoals();renderPlanTab()}
 $('#c_pool').value=store.get('tp_pool','y');setPool($('#c_pool').value);$('#c_pool').onchange=()=>{store.set('tp_pool',$('#c_pool').value);setPool($('#c_pool').value)};
+{const td=Object.assign(TD_DEFAULT(),store.get('tp_typedays',{}));
+ $('#c_type').innerHTML=`<table><tr><th></th>${DN.map(d=>`<th>${d}</th>`).join('')}</tr>${TYPES.map(([k,l])=>`<tr><td>${l}</td>${DN.map((d,i)=>`<td><input type="checkbox" data-k="${k}" value="${i}" aria-label="${l} on ${d}" ${(td[k]||[]).includes(i)?'checked':''}></td>`).join('')}</tr>`).join('')}</table>`;
+ $('#c_type').onchange=()=>store.set('tp_typedays',readTypeDays())}
 $('#c_days').innerHTML=DN.map((d,i)=>`<label><input type="checkbox" value="${i}" ${i>=1?'checked':''}>${d}</label>`).join('');
 {const t=new Date(),dow=(t.getDay()+6)%7,cur=monday(t),ck=ymd(cur);
  $('#c_week').value=(!weeksLog[ck]&&dow<=2)?ck:ymd(addDays(cur,7));
