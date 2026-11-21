@@ -87,6 +87,7 @@ details.card>summary{cursor:pointer;font-weight:700}
 .quote{flex:1 1 240px;min-width:200px;max-width:560px;text-align:center;font-size:13px;line-height:1.35;color:var(--mut);font-style:italic;transition:opacity .6s}
 .quote.out{opacity:0}.quote b{color:var(--tx);font-style:normal;font-weight:600}
 @media(prefers-reduced-motion:reduce){.quote{transition:none}}
+.lg{display:inline-flex;align-items:center;gap:6px;margin-right:18px;font-weight:600;font-size:13px}.lg i{width:18px;height:3px;border-radius:2px;display:inline-block}
 </style>
 </head>
 <body>
@@ -292,13 +293,13 @@ async function api(path,opts={}){
 }
 function setStatus(txt,cls){const s=$('#status');s.className=cls||'';s.querySelector('span').textContent=txt}
 async function sync(){
-  const t=new Date(),o=ymd(addDays(t,-42)),n=ymd(t);
+  const t=new Date(),o=ymd(addDays(t,-42)),n=ymd(t),ow=ymd(addDays(t,-45));
   setStatus('Syncing…');
   try{
     const errs={};
     const [acts,well,ath,pcr,rcr,sumr,scr]=await Promise.all([
       api(`/athlete/${cfg.id}/activities?oldest=${o}&newest=${n}`),
-      api(`/athlete/${cfg.id}/wellness?oldest=${o}&newest=${n}`).catch(()=>[]),
+      api(`/athlete/${cfg.id}/wellness?oldest=${ow}&newest=${n}`).catch(()=>[]),
       api(`/athlete/${cfg.id}`).catch(()=>({})),
       api(`/athlete/${cfg.id}/power-curves?type=Ride&curves=42d`).catch(e=>{errs.power=e.message;return null}),
       api(`/athlete/${cfg.id}/pace-curves?type=Run&curves=42d`).catch(e=>{errs.pace=e.message;return null}),
@@ -431,7 +432,7 @@ function demoData(){
     mk(addDays(base,1),'Swim',Math.round(45*f),2.4,135,45);mk(addDays(base,3),'Swim',Math.round(50*f),2.4,138,50);
     mk(addDays(base,2),'Ride',Math.round(70*f),28,142,75,+(4.4-w*.3+Math.sin(w+1)*.4).toFixed(1));mk(addDays(base,5),'Ride',Math.round(150*f),27,138,130,+(6.8-w*.7+Math.cos(w+1)*.5).toFixed(1));
     mk(addDays(base,1),'Run',Math.round(35*f),10.5,148,40);mk(addDays(base,3),'Run',Math.round(45*f),11,152,55,+(4.8-w*.4+Math.sin(w)*.5).toFixed(1));mk(addDays(base,6),'Run',Math.round(75*f),10,145,85,+(7.6-w*.9+Math.cos(w)*.6).toFixed(1))}
-  const well=[];for(let i=28;i>=0;i--)well.push({id:ymd(addDays(new Date(),-i)),ctl:38+(28-i)*.35,atl:42+Math.sin(i)*6+(28-i)*.4,rampRate:2.1,hrv:62+Math.sin(i/3)*6-(i<7?0:1),restingHR:52+Math.cos(i/4)*2+(i<7?-1:0),sleepScore:Math.round(78+Math.sin(i/2)*7),weight:+(75.2-(28-i)*.02+Math.sin(i)*.25).toFixed(1),bodyFat:+(17.6-(28-i)*.015+Math.cos(i/2)*.15).toFixed(1)});
+  const well=[];for(let i=44;i>=0;i--)well.push({id:ymd(addDays(new Date(),-i)),ctl:38+(28-i)*.35,atl:42+Math.sin(i)*6+(28-i)*.4,rampRate:2.1,hrv:62+Math.sin(i/3)*6-(i<7?0:1),restingHR:52+Math.cos(i/4)*2+(i<7?-1:0),sleepScore:Math.round(78+Math.sin(i/2)*7),weight:+(75.2-(28-i)*.02+Math.sin(i)*.25).toFixed(1),bodyFat:+(17.6-(28-i)*.015+Math.cos(i/2)*.15).toFixed(1)});
   data={acts:acts.filter(a=>pd(a.start_date_local)<=new Date()),well,settings:[{types:['Ride','VirtualRide'],ftp:235},{types:['Run'],threshold_pace:3.5},{types:['Swim'],threshold_pace:1.15}],eftp:{v:238,src:'42-day power curve'},runCS:{v:3.6,src:'42-day pace curve'},swimCS:{v:1.15,src:'42-day pace curve'},summary:[{date:ymd(new Date()),fitness:50,fatigue:55,form:-5}],name:'Demo athlete',demo:true,hist:demoHist(),at:Date.now()};
   store.set('tp_data',data);setStatus('Demo data','ok');renderAll();
 }
@@ -732,6 +733,28 @@ function raceReadyBlock(){
      <div class="small" style="margin-top:8px">${x.score>=85?'✔ You\'re in great shape for this race – protect it with a proper taper.':`Biggest gap: <b>${x.gap.n}</b>${wk?` · this week is a ${wk.phase} phase week in your roadmap.`:'.'}`}</div></div></div>`}).join('')+
    `<p class="small muted" style="margin:6px 0 0">Compares your current fitness (CTL) from intervals.icu, projected forward to race day at your recent ramp rate, with what each race distance typically needs. Within 2 weeks of a race it also checks freshness (form). A guide, not a guarantee.</p></div>`;
 }
+function fitTrend(){
+  const s=(data.well||[]).filter(w=>w.ctl!=null&&w.atl!=null).sort((a,b)=>a.id<b.id?-1:1).slice(-45).map(w=>({d:String(w.id),ctl:w.ctl,atl:w.atl})),n=s.length;
+  if(n<2)return `<div class="card"><h2>Fitness, fatigue and form</h2><p class="muted small" style="margin:0">No fitness data synced from intervals.icu yet.</p></div>`;
+  const W=640,H=340,L=34,R=12,sx=(W-L-R)/(n-1),x=i=>L+i*sx,f=s.map(p=>p.ctl-p.atl);
+  const rng=(a,lo0,hi0)=>{let lo=Math.floor(Math.min(...a,lo0)/10)*10,hi=Math.ceil(Math.max(...a,hi0)/10)*10;if(hi==lo)hi+=10;return[lo,hi]};
+  const [l1,h1]=rng(s.flatMap(p=>[p.ctl,p.atl]),1e9,-1e9),[l2,h2]=rng(f,0,0);
+  const T1=12,H1=170,T2=222,H2=90,y=(v,t,h,lo,hi)=>(t+h-(v-lo)/(hi-lo)*h).toFixed(1);
+  const path=(a,t,h,lo,hi)=>a.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(v,t,h,lo,hi)).join('');
+  const grid=(t,h,lo,hi,ticks)=>ticks.map(v=>`<line x1="${L}" x2="${W-R}" y1="${y(v,t,h,lo,hi)}" y2="${y(v,t,h,lo,hi)}" stroke="#27325a" ${v==0&&lo<0?'stroke-dasharray="4 3" stroke-width="1.5"':''}/><text x="${L-6}" y="${+y(v,t,h,lo,hi)+4}" fill="#8b97c4" font-size="11" text-anchor="end">${v}</text>`).join('');
+  const dl=(i,a)=>`<text x="${x(i)}" y="${H-6}" fill="#8b97c4" font-size="11" text-anchor="${a}">${esc(s[i].d.slice(5))}</text>`;
+  const last=s[n-1],lf=Math.round(last.ctl-last.atl);
+  const hit=s.map((p,i)=>`<rect x="${(x(i)-sx/2).toFixed(1)}" y="${T1}" width="${sx.toFixed(1)}" height="${T2+H2-T1}" fill="transparent"><title>${esc(p.d)}: fitness ${Math.round(p.ctl)}, fatigue ${Math.round(p.atl)}, form ${Math.round(p.ctl-p.atl)}</title></rect>`).join('');
+  const lg=(c,t)=>`<span class="lg"><i style="background:${c}"></i>${t}</span>`;
+  return `<div class="card"><h2>Fitness, fatigue and form · last ${n} days</h2><div style="margin-bottom:6px">${lg('#38bdf8','Fitness (CTL) '+Math.round(last.ctl))}${lg('#fb7185','Fatigue (ATL) '+Math.round(last.atl))}${lg('#a78bfa','Form (TSB) '+(lf>0?'+':'')+lf)}</div>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Fitness, fatigue and form over the last ${n} days" style="width:100%;height:auto;display:block">
+  ${grid(T1,H1,l1,h1,[l1,Math.round((l1+h1)/20)*10,h1])}${grid(T2,H2,l2,h2,[...new Set([l2,0,h2])])}
+  <path d="${path(s.map(p=>p.ctl),T1,H1,l1,h1)}" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="${path(s.map(p=>p.atl),T1,H1,l1,h1)}" fill="none" stroke="#fb7185" stroke-width="2" stroke-dasharray="6 3" stroke-linejoin="round"/>
+  <path d="${path(f,T2,H2,l2,h2)}" fill="none" stroke="#a78bfa" stroke-width="2.5" stroke-linejoin="round"/>
+  ${dl(0,'start')}${dl(Math.floor((n-1)/2),'middle')}${dl(n-1,'end')}${hit}</svg>
+  <p class="small muted" style="margin:6px 0 0">Form is fitness minus fatigue. Below zero you are carrying fatigue, above zero you are fresh. Hover a day for its values.</p></div>`;
+}
 function renderDash(){
   const el=$('#dash');
   if(!ST){el.innerHTML=`<div class="card"><h2>Welcome to TriPulse</h2><p class="muted">Connect your intervals.icu account to analyze your last 4 weeks of training and build a data-driven triathlon plan.</p><button class="btn" onclick="$('#dlg').showModal()">Connect intervals.icu</button> <button class="btn alt" onclick="demoData()">Try demo data</button></div>`;return}
@@ -741,10 +764,8 @@ function renderDash(){
     ${k('Avg weekly hours',ST.avgH.toFixed(1)+'h','last 4 weeks')}
     ${k('Avg weekly load',Math.round(ST.avgL),'training load')}
     ${k('Volume trend',(tr>=0?'+':'')+tr.toFixed(0)+'%','recent 2 wks vs first 2')}
-    ${k('Fitness (CTL)',ST.ctl!=null?ST.ctl.toFixed(0):'—','from intervals.icu')}
-    ${k('Fatigue (ATL)',ST.atl!=null?ST.atl.toFixed(0):'—','from intervals.icu')}
-    ${k('Form (TSB)',ST.form!=null?(ST.form>0?'+':'')+ST.form.toFixed(0):'—',ST.form!=null?'from intervals.icu':'not returned by intervals.icu')}
   </div>
+  ${fitTrend()}
   ${progBlock()}
   ${trendBlock()}
   ${readyBlock()}
