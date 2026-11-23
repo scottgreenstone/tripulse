@@ -842,59 +842,68 @@ function chart(){
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${g}</svg><div class="small muted">${[...SPORTS,'other'].map(s=>`<span class="dot" style="background:${COL[s]}"></span>${s} `).join('&nbsp;')}</div>`;
 }
 
-/* ---------- weekly hours: 4 weeks or calendar year ---------- */
+/* ---------- weekly hours: 4 weeks, or one calendar year (this year + up to 3 previous) ---------- */
 const ZERO=()=>({swim:{s:0,m:0,l:0,n:0},bike:{s:0,m:0,l:0,n:0},run:{s:0,m:0,l:0,n:0},other:{s:0,m:0,l:0,n:0}});
-let hrsView=store.get('tp_hrsview','4w'),ytd=(()=>{const c=store.get('tp_ytd',null);return c&&c.year===new Date().getFullYear()?c:null})(),ytdBusy=false,ytdErr='';
-const ytdFresh=()=>ytd&&ytd.year===new Date().getFullYear()&&Date.now()-ytd.at<6*36e5;
+const curYear=()=>new Date().getFullYear(),MI=1609.344;
+let hrsView=store.get('tp_hrsview','4w'),yrs=store.get('tp_yrs',{}),yrBusy={},yrErr={},probed=false;
+{const o=store.get('tp_ytd',null);if(o&&o.year&&!yrs[o.year])yrs[o.year]=o} // carry over the earlier single-year cache
+const yearEnd=y=>y===curYear()?monday(new Date()):monday(new Date(y,11,31));
 function aggYtd(acts,y){
-  const wk={};for(let d=monday(new Date(y,0,1)),end=monday(new Date());d<=end;d=addDays(d,7))wk[ymd(d)]=Object.assign({start:ymd(d)},ZERO());
+  const wk={};for(let d=monday(new Date(y,0,1)),end=yearEnd(y);d<=end;d=addDays(d,7))wk[ymd(d)]=Object.assign({start:ymd(d)},ZERO());
   acts.forEach(a=>{const d=pd(a.start_date_local);if(d.getFullYear()!==y)return;const w=wk[ymd(monday(d))];if(!w)return;const x=w[sportOf(a.type)];x.s+=a.moving_time||0;x.m+=a.distance||0;x.l+=a.icu_training_load||0;x.n++});
   return Object.values(wk).sort((a,b)=>a.start<b.start?-1:1);
 }
-function demoYtd(y){ // demo only: made-up weekly totals, with the real demo weeks on the end
-  const real=aggYtd(data.acts,y);
-  return real.map((w,i)=>{if(w.swim.s+w.bike.s+w.run.s>0)return w;const h=(5+3*Math.sin(i/6)-(i%4===3?1.5:0))*3600,o=Object.assign({start:w.start},ZERO());
+function demoYear(y){ // demo only: made-up weekly totals (none for the oldest year), with the real demo weeks on the end of this year
+  const c=curYear(),real=aggYtd(y===c?data.acts:[],y);if(y<=c-3)return real;
+  return real.map((w,i)=>{if(w.swim.s+w.bike.s+w.run.s>0)return w;const h=(4.5+(c-y===0?0:-.4*(c-y))+3*Math.sin(i/6+y)-(i%4===3?1.5:0))*3600,o=Object.assign({start:w.start},ZERO());
     [['swim',.2,2.4,45,2],['bike',.45,27,60,2],['run',.35,10.5,65,3]].forEach(([k,f,v,ld,n])=>{o[k]={s:h*f,m:h*f/3600*v*1000,l:h*f/3600*ld,n}});return o});
 }
-async function loadYtd(force){
-  if(ytdBusy||!data||(!force&&ytdFresh()))return;const y=new Date().getFullYear();ytdBusy=true;ytdErr='';renderDash();
+const yrFresh=y=>{const d=yrs[y];if(!d)return false;return y===curYear()?Date.now()-d.at<6*36e5:d.at>new Date(y+1,0,1).getTime()}; // a finished year only needs fetching once
+const yrSecs=y=>yrs[y]?yrs[y].weeks.reduce((a,w)=>a+w.swim.s+w.bike.s+w.run.s+w.other.s,0):0;
+const yrList=()=>{const c=curYear();return [c-3,c-2,c-1,c].filter(y=>y===c||yrSecs(y)>0)};
+function viewYear(){if(hrsView==='4w')return null;const c=curYear();let y=hrsView==='year'?c:+hrsView;if(!(y>=c-3&&y<=c))y=c;return y}
+const yrAvg=y=>{const c=curYear(),days=y===c?Math.floor((new Date(c,new Date().getMonth(),new Date().getDate())-new Date(c,0,1))/864e5)+1:Math.round((new Date(y+1,0,1)-new Date(y,0,1))/864e5);return yrSecs(y)/3600/(days/7)}; // hours per calendar week
+async function loadYear(y,force,quiet){
+  if(yrBusy[y]||!data||(!force&&yrFresh(y)))return;yrBusy[y]=true;delete yrErr[y];if(!quiet)renderDash();
   try{
-    const wk=data.demo?demoYtd(y):aggYtd(await api(`/athlete/${cfg.id}/activities?oldest=${y}-01-01&newest=${ymd(new Date())}`),y);
-    ytd={year:y,at:Date.now(),weeks:wk};store.set('tp_ytd',ytd);
-  }catch(e){ytdErr=e.message||'request failed'}
-  ytdBusy=false;renderDash();
+    const wk=data.demo?demoYear(y):aggYtd(await api(`/athlete/${cfg.id}/activities?oldest=${y}-01-01&newest=${y===curYear()?ymd(new Date()):y+'-12-31'}`),y);
+    yrs[y]={year:y,at:Date.now(),weeks:wk};store.set('tp_yrs',yrs);
+  }catch(e){yrErr[y]=e.message||'request failed'}
+  yrBusy[y]=false;renderDash();
 }
-function setHrsView(v){hrsView=v;store.set('tp_hrsview',v);ytdErr='';renderDash()}
+async function probeYears(){probed=true;const c=curYear();for(const y of [c-1,c-2,c-3])if(!yrFresh(y))await loadYear(y,false,true)} // finds which earlier years have activities
+function setHrsView(k){hrsView=String(k);store.set('tp_hrsview',hrsView);if(k!=='4w')delete yrErr[+k];renderDash()}
 function hoursToggle(){
-  const y=new Date().getFullYear(),b=(v,l)=>`<button class="btn ${hrsView===v?'':'alt'} sm" onclick="setHrsView('${v}')">${l}</button>`;
-  return `<div class="hist"><span class="small muted">Weekly hours view:</span>${b('4w','4 weeks')}${b('year','Calendar year · '+y)}</div>`;
+  if(data&&!probed)setTimeout(probeYears,0);
+  const v=viewYear(),b=(k,l,on)=>`<button class="btn ${on?'':'alt'} sm" onclick="setHrsView('${k}')">${l}</button>`;
+  return `<div class="hist"><span class="small muted">Weekly hours view:</span>${b('4w','4 weeks',v===null)}${yrList().map(y=>b(y,y,v===y)).join('')}</div>`;
 }
 function hoursCards4(){return `<div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
     <div class="card"><h2>4-week breakdown</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th><th>Load</th></tr>
-      ${[...SPORTS,'other'].map(s=>`<tr><td><span class="dot" style="background:${COL[s]}"></span>${s[0].toUpperCase()+s.slice(1)}</td><td>${ST.tot[s].n}</td><td>${hrs(ST.tot[s].s)}</td><td>${(ST.tot[s].m/1000).toFixed(0)} km</td><td>${Math.round(ST.tot[s].l)}</td></tr>`).join('')}</table>
+      ${[...SPORTS,'other'].map(s=>`<tr><td><span class="dot" style="background:${COL[s]}"></span>${s[0].toUpperCase()+s.slice(1)}</td><td>${ST.tot[s].n}</td><td>${hrs(ST.tot[s].s)}</td><td>${(ST.tot[s].m/1609.344).toFixed(1)} mi</td><td>${Math.round(ST.tot[s].l)}</td></tr>`).join('')}</table>
       <p class="small muted" style="margin-bottom:0">Plans are scaled from this baseline and your sport mix.</p></div>`}
-function ytdChart(){
-  const wk=ytd.weeks,n=wk.length,W=640,H=250,L=34,R=10,T=16,B=34,step=(W-L-R)/n,bw=Math.max(3,step-2),all=[...SPORTS,'other'],tot=w=>all.reduce((a,s)=>a+w[s].s,0)/3600;
-  const max=Math.max(1,...wk.map(tot))*1.15,Y=v=>H-B-v/max*(H-T-B),done=n>1?wk.slice(0,-1):wk,avg=done.reduce((a,w)=>a+tot(w),0)/done.length;
-  let g='';for(let i=0;i<=4;i++){const y=Y(max*i/4);g+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="#27325a"/><text x="${L-6}" y="${y+4}" fill="#8b97c4" font-size="11" text-anchor="end">${(max*i/4).toFixed(0)}</text>`}
+function ytdChart(y){
+  const wk=yrs[y].weeks,n=wk.length,W=640,H=250,L=34,R=10,T=16,B=34,step=(W-L-R)/n,bw=Math.max(3,step-2),all=[...SPORTS,'other'],tot=w=>all.reduce((a,s)=>a+w[s].s,0)/3600;
+  const max=Math.max(1,...wk.map(tot))*1.15,Yv=v=>H-B-v/max*(H-T-B),avg=yrAvg(y);
+  let g='';for(let i=0;i<=4;i++){const yy=Yv(max*i/4);g+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="#27325a"/><text x="${L-6}" y="${yy+4}" fill="#8b97c4" font-size="11" text-anchor="end">${(max*i/4).toFixed(0)}</text>`}
   let pm=-1;wk.forEach((w,i)=>{const x=L+i*step+(step-bw)/2;let yy=H-B;
     all.forEach(sp=>{const h=w[sp].s/3600/max*(H-T-B);yy-=h;if(h>0)g+=`<rect x="${x.toFixed(1)}" y="${yy.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" fill="${COL[sp]}"/>`});
-    const m=addDays(pd(w.start),3).getMonth();if(m!==pm){pm=m;g+=`<text x="${(L+i*step).toFixed(1)}" y="${H-12}" fill="#8b97c4" font-size="11">${pd(addDays(pd(w.start),3).toISOString().slice(0,10)).toLocaleDateString(undefined,{month:'short'})}</text>`}});
-  g+=`<line x1="${L}" x2="${W-R}" y1="${Y(avg)}" y2="${Y(avg)}" stroke="#e8ecff" stroke-opacity=".6" stroke-dasharray="5 4"/><text x="${W-R}" y="${Y(avg)-4}" fill="#e8ecff" font-size="11" text-anchor="end">avg ${avg.toFixed(1)}h/wk</text>`;
+    const th=addDays(pd(w.start),3),m=th.getMonth();if(m!==pm){pm=m;g+=`<text x="${(L+i*step).toFixed(1)}" y="${H-12}" fill="#8b97c4" font-size="11">${th.toLocaleDateString(undefined,{month:'short'})}</text>`}});
+  g+=`<line x1="${L}" x2="${W-R}" y1="${Yv(avg)}" y2="${Yv(avg)}" stroke="#e8ecff" stroke-opacity=".6" stroke-dasharray="5 4"/><text x="${W-R}" y="${Yv(avg)-4}" fill="#e8ecff" font-size="11" text-anchor="end">avg ${avg.toFixed(1)}h/wk</text>`;
   g+=wk.map((w,i)=>`<rect x="${(L+i*step).toFixed(1)}" y="${T}" width="${step.toFixed(1)}" height="${H-T-B}" fill="transparent"><title>Week of ${esc(fmtDate(pd(w.start)))}: ${tot(w).toFixed(1)}h (${SPORTS.map(sp=>sp+' '+hrs(w[sp].s)).join(' · ')})</title></rect>`).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Weekly training hours by sport, calendar year ${ytd.year}">${g}</svg><div class="small muted">${all.map(sp=>`<span class="dot" style="background:${COL[sp]}"></span>${sp} `).join('&nbsp;')}</div>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Weekly training hours by sport, ${y}">${g}</svg><div class="small muted">${all.map(sp=>`<span class="dot" style="background:${COL[sp]}"></span>${sp} `).join('&nbsp;')}</div>`;
 }
 function hoursCards(){
-  if(hrsView!=='year')return hoursCards4();
-  const y=new Date().getFullYear();
-  if(!ytdBusy&&!ytdErr&&!ytdFresh())setTimeout(()=>loadYtd(),0);
-  if(!ytd||ytd.year!==y)return `<div class="card" style="grid-column:1/-1"><h2>Weekly hours by sport · ${y}</h2>${ytdErr?`<p class="small" style="color:var(--bad)">Couldn’t load your ${y} activities: ${esc(ytdErr)}</p><button class="btn alt sm" onclick="setHrsView('year')">Try again</button>`:`<p class="small muted">Loading your ${y} activities from intervals.icu…</p>`}</div>`;
-  const tot={};[...SPORTS,'other'].forEach(sp=>{tot[sp]={s:0,m:0,l:0,n:0};ytd.weeks.forEach(w=>{['s','m','l','n'].forEach(k=>tot[sp][k]+=w[sp][k])})});
-  const all=[...SPORTS,'other'],sum=all.reduce((a,sp)=>a+tot[sp].s,0),done=ytd.weeks.length>1?ytd.weeks.slice(0,-1):ytd.weeks,avg=done.reduce((a,w)=>a+all.reduce((b,sp)=>b+w[sp].s,0),0)/3600/done.length;
-  return `<div class="card"><h2>Weekly hours by sport · ${y}</h2>${ytdChart()}</div>
+  const y=viewYear();if(y===null)return hoursCards4();
+  if(!yrBusy[y]&&!yrErr[y]&&!yrFresh(y))setTimeout(()=>loadYear(y),0);
+  const d=yrs[y];
+  if(!d)return `<div class="card" style="grid-column:1/-1"><h2>Weekly hours by sport · ${y}</h2>${yrErr[y]?`<p class="small" style="color:var(--bad)">Couldn’t load your ${y} activities: ${esc(yrErr[y])}</p><button class="btn alt sm" onclick="setHrsView('${y}')">Try again</button>`:`<p class="small muted">Loading your ${y} activities from intervals.icu…</p>`}</div>`;
+  if(!yrSecs(y))return `<div class="card" style="grid-column:1/-1"><h2>Weekly hours by sport · ${y}</h2><p class="small muted">No activities found for ${y}.</p></div>`;
+  const all=[...SPORTS,'other'],tot={};all.forEach(sp=>{tot[sp]={s:0,m:0,l:0,n:0};d.weeks.forEach(w=>{['s','m','l','n'].forEach(k=>tot[sp][k]+=w[sp][k])})});
+  return `<div class="card"><h2>Weekly hours by sport · ${y}</h2>${ytdChart(y)}</div>
     <div class="card"><h2>${y} breakdown</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th><th>Load</th></tr>
-      ${all.map(sp=>`<tr><td><span class="dot" style="background:${COL[sp]}"></span>${sp[0].toUpperCase()+sp.slice(1)}</td><td>${tot[sp].n}</td><td>${hrs(tot[sp].s)}</td><td>${(tot[sp].m/1000).toFixed(0)} km</td><td>${Math.round(tot[sp].l)}</td></tr>`).join('')}</table>
-      <p class="small muted" style="margin-bottom:0">${ytd.weeks.length} weeks so far · ${hrs(sum)}h total · average ${avg.toFixed(1)}h per full week${ytdBusy?' · refreshing…':` · updated ${esc(new Date(ytd.at).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))} · <a href="#" onclick="loadYtd(true);return false">Refresh</a>`}</p></div>`;
+      ${all.map(sp=>`<tr><td><span class="dot" style="background:${COL[sp]}"></span>${sp[0].toUpperCase()+sp.slice(1)}</td><td>${tot[sp].n}</td><td>${hrs(tot[sp].s)}</td><td>${(tot[sp].m/MI).toFixed(1)} mi</td><td>${Math.round(tot[sp].l)}</td></tr>`).join('')}</table>
+      <p class="small muted" style="margin-bottom:0">${hrs(yrSecs(y))}h total · average ${yrAvg(y).toFixed(1)}h per week${yrBusy[y]?' · refreshing…':` · updated ${esc(new Date(d.at).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))} · <a href="#" onclick="loadYear(${y},true);return false">Refresh</a>`}</p></div>`;
 }
 /* ---------- goals ---------- */
 const DIST={
