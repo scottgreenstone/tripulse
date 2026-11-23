@@ -90,6 +90,7 @@ details.card>summary{cursor:pointer;font-weight:700}
 .lg{display:inline-flex;align-items:center;gap:6px;margin-right:18px;font-weight:600;font-size:13px}.lg i{width:18px;height:3px;border-radius:2px;display:inline-block}
 .tdays{overflow-x:auto}.tdays table{width:auto;min-width:420px}.tdays th,.tdays td{text-align:center;padding:6px 10px}.tdays td:first-child,.tdays th:first-child{text-align:left}.tdays input{width:auto}
 .rrg{display:grid;grid-template-columns:210px 1fr;gap:16px;align-items:center}@media(max-width:560px){.rrg{grid-template-columns:1fr}}
+.rsform{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:10px}.rsg{display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:8px}.rsc{border:1px solid var(--line);border-radius:8px;padding:6px 10px}.rsc b{font-size:16px}.rsc.hi{border-color:#38bdf8}
 </style>
 </head>
 <body>
@@ -213,6 +214,20 @@ details.card>summary{cursor:pointer;font-weight:700}
   <div class="row"><button class="btn" onclick="crSave()">Save course</button><button class="btn alt" onclick="$('#dlgCourse').close()">Cancel</button></div>
 </dialog>
 
+<dialog id="dlgResult">
+  <h2 style="margin-top:0">🏁 Race result – <span id="rs_name"></span></h2>
+  <p class="small muted">Enter times as h:mm:ss, or mm:ss for transitions and short legs.</p>
+  <div id="rs_tri" class="rsform">
+    <div><label>Swim</label><input id="rs_swim" placeholder="e.g. 0:31:20" oninput="rsAuto()"></div>
+    <div><label>T1</label><input id="rs_t1" placeholder="e.g. 2:10" oninput="rsAuto()"></div>
+    <div><label>Bike</label><input id="rs_bike" placeholder="e.g. 2:41:00" oninput="rsAuto()"></div>
+    <div><label>T2</label><input id="rs_t2" placeholder="e.g. 1:30" oninput="rsAuto()"></div>
+    <div><label>Run</label><input id="rs_run" placeholder="e.g. 1:44:00" oninput="rsAuto()"></div>
+  </div>
+  <div><label>Total time</label><input id="rs_total" placeholder="h:mm:ss"></div>
+  <p class="small" id="rs_msg" style="color:var(--bad)"></p>
+  <div class="row"><button class="btn" onclick="rsSave()">Save result</button><button class="btn alt hide" id="rs_clear" onclick="rsClear()">Clear result</button><button class="btn alt" onclick="$('#dlgResult').close()">Cancel</button></div>
+</dialog>
 <dialog id="dlg2">
   <h2 style="margin-top:0">☁ Cloud sync (Firebase)</h2>
   <p class="small muted">Saves your goals, check-ins and roadmap to your own private Firebase database so any computer you sign in on has the same data.</p>
@@ -707,6 +722,39 @@ function crSave(){
   if(out.bike||out.run)g.course=out;else delete g.course;
   store.set('tp_goals',goals);$('#dlgCourse').close();renderGoals();renderDash();
 }
+/* ---------- race results (entered after the race) ---------- */
+const isTri=d=>['sprint','olympic','70.3','ironman'].includes(d);
+const parseHMS=v=>{v=String(v).trim();if(/^\d+$/.test(v))return +v*60;const m=v.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);if(!m)return null;
+  const a=+m[1],b=+m[2],c=m[3]===undefined?null:+m[3];if(b>59||(c!==null&&c>59))return null;return c===null?a*60+b:a*3600+b*60+c};
+const RS_LBL={swim:'Swim',t1:'T1',bike:'Bike',t2:'T2',run:'Run',total:'Total'},RS_LEGS=['swim','t1','bike','t2','run'];
+let rsId=null;
+function openResult(id){
+  const g=goals.find(x=>x.id===id);if(!g)return;rsId=id;const r=g.result||{},tri=isTri(g.dist);
+  $('#rs_name').textContent=g.name;$('#rs_tri').classList.toggle('hide',!tri);
+  Object.keys(RS_LBL).forEach(k=>{$('#rs_'+k).value=r[k]!=null?fmtT(r[k]):''});
+  $('#rs_msg').textContent='';$('#rs_clear').classList.toggle('hide',!g.result);rsAuto();$('#dlgResult').showModal();
+}
+function rsAuto(){
+  const v=RS_LEGS.map(k=>parseHMS($('#rs_'+k).value)),ok=v.every(x=>x!==null&&x!==undefined);
+  $('#rs_total').placeholder=ok?'Auto: '+fmtT(v.reduce((a,b)=>a+b,0)):'h:mm:ss';
+}
+function rsSave(){
+  const g=goals.find(x=>x.id===rsId);if(!g)return;const tri=isTri(g.dist),keys=tri?Object.keys(RS_LBL):['total'],out={},bad=[],msg=$('#rs_msg');
+  keys.forEach(k=>{const v=$('#rs_'+k).value.trim();if(!v)return;const sec=parseHMS(v);if(sec===null)bad.push(RS_LBL[k]);else out[k]=sec});
+  if(bad.length){msg.textContent='Use h:mm:ss or mm:ss for: '+bad.join(', ')+'.';return}
+  if(out.total===undefined){
+    if(tri&&RS_LEGS.every(k=>out[k]!==undefined))out.total=RS_LEGS.reduce((a,k)=>a+out[k],0);
+    else{msg.textContent=tri?'Enter the total time, or all five legs so they can be added up.':'Enter your finish time.';return}
+  }
+  g.result=out;store.set('tp_goals',goals);$('#dlgResult').close();renderGoals();
+}
+function rsClear(){const g=goals.find(x=>x.id===rsId);if(!g)return;delete g.result;store.set('tp_goals',goals);$('#dlgResult').close();renderGoals()}
+function resultHtml(g){
+  const r=g.result;if(!r)return '';
+  const cell=(l,v,hi)=>`<div class="rsc${hi?' hi':''}"><div class="small muted">${l}</div><b>${fmtT(v)}</b></div>`;
+  const legs=isTri(g.dist)?RS_LEGS.filter(k=>r[k]!==undefined).map(k=>cell(RS_LBL[k],r[k])).join(''):'';
+  return `<div class="rsg" style="margin-top:10px">${legs}${cell('Total',r.total,1)}</div>`;
+}
 /* ---------- race readiness (per upcoming race goal) ---------- */
 const RR={sprint:{ctl:35,h:5,lb:60,lr:40,p:'Sprint triathlon'},olympic:{ctl:50,h:7,lb:90,lr:60,p:'Olympic triathlon'},'70.3':{ctl:65,h:10,lb:150,lr:90,p:'70.3 triathlon'},ironman:{ctl:85,h:14,lb:210,lr:120,p:'140.6 triathlon'},
  '5k':{ctl:30,h:4,lr:45,p:'5k'},'10k':{ctl:38,h:5,lr:60,p:'10k'},half:{ctl:48,h:6,lr:90,p:'Half marathon'},marathon:{ctl:60,h:8,lr:135,p:'Marathon'},'50k':{ctl:65,h:9,lr:150,p:'50k'},'100k':{ctl:75,h:11,lr:150,p:'100k'}};
@@ -854,12 +902,12 @@ $('#addGoal').onclick=()=>{
 function renderGoals(){
   const el=$('#goalList');if(!goals.length){el.innerHTML='<div class="card muted">No goals yet. Add a race or fitness goal above.</div>';return}
   el.innerHTML=[...goals].sort((a,b)=>a.start<b.start?-1:1).map(g=>{
-    const now=Date.now(),s=pd(g.start).getTime(),e=addDays(pd(g.end),1).getTime();
+    const now=Date.now(),s=pd(g.start).getTime(),e=addDays(pd(g.end),1).getTime(),resBtn=g.type==='race'&&s<=now?`<button class="btn alt sm" onclick="openResult(${g.id})">${g.result?'Edit result':'Enter result'}</button> `:'';
     let body;
-    if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div>${raceReadyHtml(g)}`}
+    if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div>${resultHtml(g)}${raceReadyHtml(g)}`}
     else{const cur=curMetric(g.metric),pct=cur!=null?Math.min(100,g.metric==='runpace'?g.target/cur*100:cur/g.target*100):0,tp=Math.min(100,Math.max(0,(now-s)/(e-s)*100));
       body=`<div class="small muted">${esc(fmtD(g.start))} → ${esc(fmtD(g.end))}</div><div class="small">${METRIC[g.metric]}: <b>${cur!=null?fmtM(g.metric,cur):'—'}</b> / ${fmtM(g.metric,g.target)} (${pct.toFixed(0)}%) · time elapsed ${tp.toFixed(0)}% ${cur!=null&&pct>=tp-5?'<span style="color:var(--ok)">✔ on track</span>':'<span style="color:var(--bad)">behind pace</span>'}</div><div class="bar"><div style="width:${pct}%"></div></div><div class="small" style="margin-top:6px">🎯 Training focus: ${focusOf(g).length?focusOf(g).map(x=>FLABEL[x]).join(', '):'<span class="muted">no keyword match – general training</span>'}</div>`}
-    return `<div class="goal"><h3>${g.type==='race'?'<span class="tag r">RACE '+g.prio+'</span>'+(DIST[g.dist]?DIST[g.dist].n:esc(g.dist)):'<span class="tag">FITNESS</span>'} ${esc(g.name)}<span class="sp"></span><button class="btn alt sm" onclick="editGoal(${g.id})">Edit</button> <button class="btn alt sm" onclick="delGoal(${g.id})">Delete</button></h3>${body}</div>`}).join('');
+    return `<div class="goal"><h3>${g.type==='race'?'<span class="tag r">RACE '+g.prio+'</span>'+(DIST[g.dist]?DIST[g.dist].n:esc(g.dist)):'<span class="tag">FITNESS</span>'} ${esc(g.name)}<span class="sp"></span>${resBtn}<button class="btn alt sm" onclick="editGoal(${g.id})">Edit</button> <button class="btn alt sm" onclick="delGoal(${g.id})">Delete</button></h3>${body}</div>`}).join('');
 }
 function delGoal(id){if(editGoalId===id)resetGoalForm();goals=goals.filter(g=>g.id!==id);store.set('tp_goals',goals);renderGoals();renderPlanNote()}
 
