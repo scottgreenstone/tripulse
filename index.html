@@ -136,6 +136,7 @@ details.card>summary{cursor:pointer;font-weight:700}
       </div>
       <div class="row"><button class="btn" id="addGoal">Add goal</button><button class="btn alt hide" id="cancelGoal">Cancel</button><span class="small muted" id="g_err"></span></div>
     </div>
+    <div id="g_searchwrap" class="hide" style="margin-bottom:14px"><input type="search" id="g_search" placeholder="Search races and goals – name, distance, month, priority, completed…" aria-label="Search goals" oninput="renderGoals()"></div>
     <div id="goalList"></div>
   </section>
 
@@ -900,14 +901,22 @@ $('#addGoal').onclick=()=>{
   store.set('tp_goals',goals);resetGoalForm();renderGoals();renderPlanNote();renderDash();
 };
 function renderGoals(){
-  const el=$('#goalList');if(!goals.length){el.innerHTML='<div class="card muted">No goals yet. Add a race or fitness goal above.</div>';return}
-  el.innerHTML=[...goals].sort((a,b)=>a.start<b.start?-1:1).map(g=>{
+  const el=$('#goalList');$('#g_searchwrap').classList.toggle('hide',!goals.length);if(!goals.length){el.innerHTML='<div class="card muted">No goals yet. Add a race or fitness goal above.</div>';return}
+  const card=g=>{
     const now=Date.now(),s=pd(g.start).getTime(),e=addDays(pd(g.end),1).getTime(),resBtn=g.type==='race'&&s<=now?`<button class="btn alt sm" onclick="openResult(${g.id})">${g.result?'Edit result':'Enter result'}</button> `:'';
     let body;
     if(g.type==='race'){const d=Math.ceil((s-now)/864e5);body=`<div class="small muted">${esc(fmtD(g.start))}${g.end!==g.start?' → '+esc(fmtD(g.end)):''}</div><div class="small">${d>=0?`<b>${d}</b> days to go`:'Completed'}</div>${resultHtml(g)}${raceReadyHtml(g)}`}
     else{const cur=curMetric(g.metric),pct=cur!=null?Math.min(100,g.metric==='runpace'?g.target/cur*100:cur/g.target*100):0,tp=Math.min(100,Math.max(0,(now-s)/(e-s)*100));
       body=`<div class="small muted">${esc(fmtD(g.start))} → ${esc(fmtD(g.end))}</div><div class="small">${METRIC[g.metric]}: <b>${cur!=null?fmtM(g.metric,cur):'—'}</b> / ${fmtM(g.metric,g.target)} (${pct.toFixed(0)}%) · time elapsed ${tp.toFixed(0)}% ${cur!=null&&pct>=tp-5?'<span style="color:var(--ok)">✔ on track</span>':'<span style="color:var(--bad)">behind pace</span>'}</div><div class="bar"><div style="width:${pct}%"></div></div><div class="small" style="margin-top:6px">🎯 Training focus: ${focusOf(g).length?focusOf(g).map(x=>FLABEL[x]).join(', '):'<span class="muted">no keyword match – general training</span>'}</div>`}
-    return `<div class="goal"><h3>${g.type==='race'?'<span class="tag r">RACE '+g.prio+'</span>'+(DIST[g.dist]?DIST[g.dist].n:esc(g.dist)):'<span class="tag">FITNESS</span>'} ${esc(g.name)}<span class="sp"></span>${resBtn}<button class="btn alt sm" onclick="editGoal(${g.id})">Edit</button> <button class="btn alt sm" onclick="delGoal(${g.id})">Delete</button></h3>${body}</div>`}).join('');
+    return `<div class="goal"><h3>${g.type==='race'?'<span class="tag r">RACE '+g.prio+'</span>'+(DIST[g.dist]?DIST[g.dist].n:esc(g.dist)):'<span class="tag">FITNESS</span>'} ${esc(g.name)}<span class="sp"></span>${resBtn}<button class="btn alt sm" onclick="editGoal(${g.id})">Edit</button> <button class="btn alt sm" onclick="delGoal(${g.id})">Delete</button></h3>${body}</div>`};
+  const isDone=g=>g.type==='race'?Math.ceil((pd(g.start).getTime()-Date.now())/864e5)<0:Date.now()>=addDays(pd(g.end),1).getTime();
+  const hay=g=>{const dt=pd(g.start),lbl=g.type==='race'?[DIST[g.dist]?DIST[g.dist].n:g.dist,g.dist,isTri(g.dist)?'triathlon':'run running','race','priority '+g.prio,g.prio+' race',isDone(g)?'completed past done':'upcoming']:['fitness','goal',METRIC[g.metric]||'',g.metric||'',isDone(g)?'completed past done':'active in progress'];
+    return [g.name,...lbl,g.start,fmtD(g.start),dt.toLocaleDateString(undefined,{month:'long',year:'numeric'}),dt.toLocaleDateString(undefined,{weekday:'long'})].join(' ').toLowerCase().replace(/[^a-z0-9.]+/g,' ')};
+  const raw=($('#g_search').value||'').trim(),terms=raw.toLowerCase().split(/\s+/).map(t=>t.replace(/[^a-z0-9.]/g,'')).filter(Boolean);
+  const list=terms.length?goals.filter(g=>{const h=' '+hay(g);return terms.every(t=>h.includes(' '+t))}):[...goals]; // each word must start a word in the goal's text
+  if(!list.length){el.innerHTML=`<div class="card muted">No goals match “${esc(raw)}”.</div>`;return}
+  const act=list.filter(g=>!isDone(g)).sort((a,b)=>a.start<b.start?-1:1),fin=list.filter(isDone).sort((a,b)=>a.end<b.end?1:-1);
+  el.innerHTML=(terms.length?`<div class="small muted" style="margin-bottom:8px">Showing ${list.length} of ${goals.length}</div>`:'')+act.map(card).join('')+(fin.length?`<div class="small muted" style="font-weight:700;letter-spacing:.04em;margin:18px 0 8px">COMPLETED GOALS · ${fin.length}</div>`+fin.map(card).join(''):'');
 }
 function delGoal(id){if(editGoalId===id)resetGoalForm();goals=goals.filter(g=>g.id!==id);store.set('tp_goals',goals);renderGoals();renderPlanNote()}
 
