@@ -826,11 +826,9 @@ function renderDash(){
   ${progBlock()}
   ${trendBlock()}
   ${predBlock()}
+  ${hoursToggle()}
   <div class="grid two">
-    <div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
-    <div class="card"><h2>4-week breakdown</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th><th>Load</th></tr>
-      ${[...SPORTS,'other'].map(s=>`<tr><td><span class="dot" style="background:${COL[s]}"></span>${s[0].toUpperCase()+s.slice(1)}</td><td>${ST.tot[s].n}</td><td>${hrs(ST.tot[s].s)}</td><td>${(ST.tot[s].m/1000).toFixed(0)} km</td><td>${Math.round(ST.tot[s].l)}</td></tr>`).join('')}</table>
-      <p class="small muted" style="margin-bottom:0">Plans are scaled from this baseline and your sport mix.</p></div>
+    ${hoursCards()}
   </div>
   <div class="card"><h2>Recent activities</h2><table><tr><th>Date</th><th>Sport</th><th>Name</th><th>Time</th><th>Dist</th><th>HR</th><th>Load</th></tr>
     ${ST.recent.map(a=>{const sp=sportOf(a.type);return `<tr><td>${fmtDate(pd(a.start_date_local))}</td><td>${ICON[sp]} ${esc(a.type||'')}</td><td>${esc(a.name||'')}</td><td>${Math.round((a.moving_time||0)/60)} min</td><td>${((a.distance||0)/1000).toFixed(1)} km</td><td>${a.average_heartrate?Math.round(a.average_heartrate):'—'}</td><td>${Math.round(a.icu_training_load||0)}</td></tr>`}).join('')}</table></div>`;
@@ -844,6 +842,60 @@ function chart(){
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${g}</svg><div class="small muted">${[...SPORTS,'other'].map(s=>`<span class="dot" style="background:${COL[s]}"></span>${s} `).join('&nbsp;')}</div>`;
 }
 
+/* ---------- weekly hours: 4 weeks or calendar year ---------- */
+const ZERO=()=>({swim:{s:0,m:0,l:0,n:0},bike:{s:0,m:0,l:0,n:0},run:{s:0,m:0,l:0,n:0},other:{s:0,m:0,l:0,n:0}});
+let hrsView=store.get('tp_hrsview','4w'),ytd=(()=>{const c=store.get('tp_ytd',null);return c&&c.year===new Date().getFullYear()?c:null})(),ytdBusy=false,ytdErr='';
+const ytdFresh=()=>ytd&&ytd.year===new Date().getFullYear()&&Date.now()-ytd.at<6*36e5;
+function aggYtd(acts,y){
+  const wk={};for(let d=monday(new Date(y,0,1)),end=monday(new Date());d<=end;d=addDays(d,7))wk[ymd(d)]=Object.assign({start:ymd(d)},ZERO());
+  acts.forEach(a=>{const d=pd(a.start_date_local);if(d.getFullYear()!==y)return;const w=wk[ymd(monday(d))];if(!w)return;const x=w[sportOf(a.type)];x.s+=a.moving_time||0;x.m+=a.distance||0;x.l+=a.icu_training_load||0;x.n++});
+  return Object.values(wk).sort((a,b)=>a.start<b.start?-1:1);
+}
+function demoYtd(y){ // demo only: made-up weekly totals, with the real demo weeks on the end
+  const real=aggYtd(data.acts,y);
+  return real.map((w,i)=>{if(w.swim.s+w.bike.s+w.run.s>0)return w;const h=(5+3*Math.sin(i/6)-(i%4===3?1.5:0))*3600,o=Object.assign({start:w.start},ZERO());
+    [['swim',.2,2.4,45,2],['bike',.45,27,60,2],['run',.35,10.5,65,3]].forEach(([k,f,v,ld,n])=>{o[k]={s:h*f,m:h*f/3600*v*1000,l:h*f/3600*ld,n}});return o});
+}
+async function loadYtd(force){
+  if(ytdBusy||!data||(!force&&ytdFresh()))return;const y=new Date().getFullYear();ytdBusy=true;ytdErr='';renderDash();
+  try{
+    const wk=data.demo?demoYtd(y):aggYtd(await api(`/athlete/${cfg.id}/activities?oldest=${y}-01-01&newest=${ymd(new Date())}`),y);
+    ytd={year:y,at:Date.now(),weeks:wk};store.set('tp_ytd',ytd);
+  }catch(e){ytdErr=e.message||'request failed'}
+  ytdBusy=false;renderDash();
+}
+function setHrsView(v){hrsView=v;store.set('tp_hrsview',v);ytdErr='';renderDash()}
+function hoursToggle(){
+  const y=new Date().getFullYear(),b=(v,l)=>`<button class="btn ${hrsView===v?'':'alt'} sm" onclick="setHrsView('${v}')">${l}</button>`;
+  return `<div class="hist"><span class="small muted">Weekly hours view:</span>${b('4w','4 weeks')}${b('year','Calendar year · '+y)}</div>`;
+}
+function hoursCards4(){return `<div class="card"><h2>Weekly hours by sport</h2>${chart()}</div>
+    <div class="card"><h2>4-week breakdown</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th><th>Load</th></tr>
+      ${[...SPORTS,'other'].map(s=>`<tr><td><span class="dot" style="background:${COL[s]}"></span>${s[0].toUpperCase()+s.slice(1)}</td><td>${ST.tot[s].n}</td><td>${hrs(ST.tot[s].s)}</td><td>${(ST.tot[s].m/1000).toFixed(0)} km</td><td>${Math.round(ST.tot[s].l)}</td></tr>`).join('')}</table>
+      <p class="small muted" style="margin-bottom:0">Plans are scaled from this baseline and your sport mix.</p></div>`}
+function ytdChart(){
+  const wk=ytd.weeks,n=wk.length,W=640,H=250,L=34,R=10,T=16,B=34,step=(W-L-R)/n,bw=Math.max(3,step-2),all=[...SPORTS,'other'],tot=w=>all.reduce((a,s)=>a+w[s].s,0)/3600;
+  const max=Math.max(1,...wk.map(tot))*1.15,Y=v=>H-B-v/max*(H-T-B),done=n>1?wk.slice(0,-1):wk,avg=done.reduce((a,w)=>a+tot(w),0)/done.length;
+  let g='';for(let i=0;i<=4;i++){const y=Y(max*i/4);g+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="#27325a"/><text x="${L-6}" y="${y+4}" fill="#8b97c4" font-size="11" text-anchor="end">${(max*i/4).toFixed(0)}</text>`}
+  let pm=-1;wk.forEach((w,i)=>{const x=L+i*step+(step-bw)/2;let yy=H-B;
+    all.forEach(sp=>{const h=w[sp].s/3600/max*(H-T-B);yy-=h;if(h>0)g+=`<rect x="${x.toFixed(1)}" y="${yy.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" fill="${COL[sp]}"/>`});
+    const m=addDays(pd(w.start),3).getMonth();if(m!==pm){pm=m;g+=`<text x="${(L+i*step).toFixed(1)}" y="${H-12}" fill="#8b97c4" font-size="11">${pd(addDays(pd(w.start),3).toISOString().slice(0,10)).toLocaleDateString(undefined,{month:'short'})}</text>`}});
+  g+=`<line x1="${L}" x2="${W-R}" y1="${Y(avg)}" y2="${Y(avg)}" stroke="#e8ecff" stroke-opacity=".6" stroke-dasharray="5 4"/><text x="${W-R}" y="${Y(avg)-4}" fill="#e8ecff" font-size="11" text-anchor="end">avg ${avg.toFixed(1)}h/wk</text>`;
+  g+=wk.map((w,i)=>`<rect x="${(L+i*step).toFixed(1)}" y="${T}" width="${step.toFixed(1)}" height="${H-T-B}" fill="transparent"><title>Week of ${esc(fmtDate(pd(w.start)))}: ${tot(w).toFixed(1)}h (${SPORTS.map(sp=>sp+' '+hrs(w[sp].s)).join(' · ')})</title></rect>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Weekly training hours by sport, calendar year ${ytd.year}">${g}</svg><div class="small muted">${all.map(sp=>`<span class="dot" style="background:${COL[sp]}"></span>${sp} `).join('&nbsp;')}</div>`;
+}
+function hoursCards(){
+  if(hrsView!=='year')return hoursCards4();
+  const y=new Date().getFullYear();
+  if(!ytdBusy&&!ytdErr&&!ytdFresh())setTimeout(()=>loadYtd(),0);
+  if(!ytd||ytd.year!==y)return `<div class="card" style="grid-column:1/-1"><h2>Weekly hours by sport · ${y}</h2>${ytdErr?`<p class="small" style="color:var(--bad)">Couldn’t load your ${y} activities: ${esc(ytdErr)}</p><button class="btn alt sm" onclick="setHrsView('year')">Try again</button>`:`<p class="small muted">Loading your ${y} activities from intervals.icu…</p>`}</div>`;
+  const tot={};[...SPORTS,'other'].forEach(sp=>{tot[sp]={s:0,m:0,l:0,n:0};ytd.weeks.forEach(w=>{['s','m','l','n'].forEach(k=>tot[sp][k]+=w[sp][k])})});
+  const all=[...SPORTS,'other'],sum=all.reduce((a,sp)=>a+tot[sp].s,0),done=ytd.weeks.length>1?ytd.weeks.slice(0,-1):ytd.weeks,avg=done.reduce((a,w)=>a+all.reduce((b,sp)=>b+w[sp].s,0),0)/3600/done.length;
+  return `<div class="card"><h2>Weekly hours by sport · ${y}</h2>${ytdChart()}</div>
+    <div class="card"><h2>${y} breakdown</h2><table><tr><th>Sport</th><th>Sessions</th><th>Hours</th><th>Distance</th><th>Load</th></tr>
+      ${all.map(sp=>`<tr><td><span class="dot" style="background:${COL[sp]}"></span>${sp[0].toUpperCase()+sp.slice(1)}</td><td>${tot[sp].n}</td><td>${hrs(tot[sp].s)}</td><td>${(tot[sp].m/1000).toFixed(0)} km</td><td>${Math.round(tot[sp].l)}</td></tr>`).join('')}</table>
+      <p class="small muted" style="margin-bottom:0">${ytd.weeks.length} weeks so far · ${hrs(sum)}h total · average ${avg.toFixed(1)}h per full week${ytdBusy?' · refreshing…':` · updated ${esc(new Date(ytd.at).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))} · <a href="#" onclick="loadYtd(true);return false">Refresh</a>`}</p></div>`;
+}
 /* ---------- goals ---------- */
 const DIST={
  sprint:{n:'Sprint tri',type:'tri',cap:8,taper:1,rec:1},olympic:{n:'Olympic tri',type:'tri',cap:10,taper:1,rec:1},'70.3':{n:'70.3',type:'tri',cap:14,taper:2,rec:1},ironman:{n:'Ironman',type:'tri',cap:18,taper:3,rec:2},
