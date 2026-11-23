@@ -91,6 +91,7 @@ details.card>summary{cursor:pointer;font-weight:700}
 .tdays{overflow-x:auto}.tdays table{width:auto;min-width:420px}.tdays th,.tdays td{text-align:center;padding:6px 10px}.tdays td:first-child,.tdays th:first-child{text-align:left}.tdays input{width:auto}
 .rrg{display:grid;grid-template-columns:210px 1fr;gap:16px;align-items:center}@media(max-width:560px){.rrg{grid-template-columns:1fr}}
 .rsform{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:10px}.rsg{display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:8px}.rsc{border:1px solid var(--line);border-radius:8px;padding:6px 10px}.rsc b{font-size:16px}.rsc.hi{border-color:#38bdf8}
+.dtog{background:none;border:0;color:inherit;font:inherit;font-weight:700;letter-spacing:.04em;cursor:pointer;padding:6px 0;display:flex;align-items:center;gap:8px}.dtog:hover{color:var(--text,#e8ecff)}
 </style>
 </head>
 <body>
@@ -961,6 +962,8 @@ $('#addGoal').onclick=()=>{
   if(!old)goals.push(g);
   store.set('tp_goals',goals);resetGoalForm();renderGoals();renderPlanNote();renderDash();
 };
+let doneCollapsed=!!store.get('tp_donecollapsed',0);
+function toggleDone(){doneCollapsed=!doneCollapsed;store.set('tp_donecollapsed',doneCollapsed?1:0);renderGoals()}
 function renderGoals(){
   const el=$('#goalList');$('#g_searchwrap').classList.toggle('hide',!goals.length);if(!goals.length){el.innerHTML='<div class="card muted">No goals yet. Add a race or fitness goal above.</div>';return}
   const card=g=>{
@@ -977,7 +980,9 @@ function renderGoals(){
   const list=terms.length?goals.filter(g=>{const h=' '+hay(g);return terms.every(t=>h.includes(' '+t))}):[...goals]; // each word must start a word in the goal's text
   if(!list.length){el.innerHTML=`<div class="card muted">No goals match “${esc(raw)}”.</div>`;return}
   const act=list.filter(g=>!isDone(g)).sort((a,b)=>a.start<b.start?-1:1),fin=list.filter(isDone).sort((a,b)=>a.end<b.end?1:-1);
-  el.innerHTML=(terms.length?`<div class="small muted" style="margin-bottom:8px">Showing ${list.length} of ${goals.length}</div>`:'')+act.map(card).join('')+(fin.length?`<div class="small muted" style="font-weight:700;letter-spacing:.04em;margin:18px 0 8px">COMPLETED GOALS · ${fin.length}</div>`+fin.map(card).join(''):'');
+  el.innerHTML=(terms.length?`<div class="small muted" style="margin-bottom:8px">Showing ${list.length} of ${goals.length}</div>`:'')+act.map(card).join('')+(fin.length?(terms.length   // while searching, matching completed goals are always shown
+    ?`<div class="small muted" style="font-weight:700;letter-spacing:.04em;margin:18px 0 8px">COMPLETED GOALS · ${fin.length}</div>`+fin.map(card).join('')
+    :`<div class="small muted" style="margin:18px 0 8px"><button class="dtog" aria-expanded="${!doneCollapsed}" onclick="toggleDone()"><span aria-hidden="true">${doneCollapsed?'▸':'▾'}</span>COMPLETED GOALS · ${fin.length}</button></div>`+(doneCollapsed?'':fin.map(card).join(''))):'');
 }
 function delGoal(id){if(editGoalId===id)resetGoalForm();goals=goals.filter(g=>g.id!==id);store.set('tp_goals',goals);renderGoals();renderPlanNote()}
 
